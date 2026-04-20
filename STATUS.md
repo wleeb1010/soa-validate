@@ -4,6 +4,45 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 2 day 2 — HR-01 + HR-02 upgraded to positive+negative; pin at 9d25163)
+
+**Done:**
+- **Pin-bumped `1f72bf6 → 9d25163`** to consume the new spec fixtures. `spec_manifest_sha256` updated to `82c78d53…2a7337` (MANIFEST regen added 8 supplementary_artifacts for initial-trust/ + crl/).
+- `internal/inittrust` — post-parse semantic gate for Core §5.3. Pure functions: `Parse` + `SemanticValidate(bundle, now) → Reason`. Closed-set reason codes (`bootstrap-expired`). 3 unit tests.
+- `internal/crlstate` — §7.3.1 three-state classifier. `Classify(crl, now) → {State, Accept, RefreshNeeded, FailureReason}`. 4 unit tests covering fresh, stale-but-valid, expired-past-not_after, and expired-past-2h-ceiling.
+- **HR-01 vector path upgraded to positive+negative:**
+  - `valid.json` → schema-valid AND semantic-valid (`not_after` in 2099)
+  - `expired.json` → schema-valid BUT semantic-reject with `bootstrap-expired` (rejection comes from post-parse clock gate, NOT schema)
+  - `channel-mismatch.json` → schema-reject (closed enum guard on `channel`)
+  - Plus 4 inline negatives for fuzzy-edge schema coverage
+- **HR-02 vector path upgraded to full state-machine coverage** with `T_ref = 2026-04-20T12:00:00Z` clock injection:
+  - `fresh.json` @ T_ref → `fresh`, accept, **no refresh queued**
+  - `stale.json` @ T_ref → `stale-but-valid`, accept, **refresh queued** (side effect asserted)
+  - `expired.json` (any clock) → `expired`, fail-closed, `crl-expired` reason
+  - Plus 4 inline schema negatives
+- **All four targeted tests now show true positive-path evidence, not just negative assertions.**
+
+**Scoreboard at end of Week 2 day 2:**
+
+| Test | vector evidence | live |
+|---|---|---|
+| SV-CARD-01 | pass (schema + JCS idempotent) | pass |
+| SV-SIGN-01 | pass (header shape + JCS signing-input) | pass |
+| SV-PERM-01 | pass (JCS=385 bytes + SHA digest match against spec README) | skip |
+| **HR-01** | **pass (positive + semantic-reject + schema-reject + 4 negatives)** | skip |
+| **HR-02** | **pass (3 state-machine cases + 4 negatives)** | skip |
+| SV-BOOT-01 | skip | pass |
+| HR-12, HR-14 | skip | skip |
+
+**Totals: 6 pass / 2 skip / 0 fail against live impl at `127.0.0.1:7700`.**
+
+**Test count:** 39 unit tests across 7 packages (jcs, digest, musmap, agentcard, permprompt, runner, inittrust, crlstate). `go vet ./...` clean, `go build` green.
+
+**Waiting on:**
+- Impl permission resolver + PDA verifier — once their STATUS.md signals, SV-PERM-01 live can flip.
+
+---
+
 ## 2026-04-20 (Week 2 day 1 close — SV-BOOT-01 flipped green after impl shipped §5.4 probes)
 
 **Done:**

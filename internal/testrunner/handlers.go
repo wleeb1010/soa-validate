@@ -9,13 +9,20 @@ import (
 	"net/http"
 	"strconv"
 
+	"time"
+
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
+	"github.com/wleeb1010/soa-validate/internal/crlstate"
 	"github.com/wleeb1010/soa-validate/internal/digest"
+	"github.com/wleeb1010/soa-validate/internal/inittrust"
 	"github.com/wleeb1010/soa-validate/internal/jcs"
 	"github.com/wleeb1010/soa-validate/internal/permprompt"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
+
+// T_ref for CRL state-machine clock injection per test-vectors/crl/README.md.
+var crlRefClock = time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
 
 // Handler receives the shared execution context (runner client, spec locator,
 // live-path gate) and returns a list of Evidence. The runner aggregates.
@@ -333,35 +340,76 @@ func permVectorCheck(sv specvec.Locator) Evidence {
 // does not yet publish.
 
 func handleHR01(ctx context.Context, h HandlerCtx) []Evidence {
-	var out []Evidence
+	schemaPath := h.Spec.Path(specvec.InitialTrustSchema)
 
-	// Negative path: schema must reject these three crafted inputs.
-	cases := []struct {
-		name, body string
-	}{
+	// Inline negatives — still useful for fuzzy coverage of schema edges.
+	inlineNegs := []struct{ name, body string }{
 		{"empty bundle", `{}`},
 		{"wrong soaHarnessVersion", `{"soaHarnessVersion":"0.9","publisher_kid":"k","spki_sha256":"0000000000000000000000000000000000000000000000000000000000000000","issuer":"CN=x"}`},
-		{"extra field (additionalProperties false)", `{"soaHarnessVersion":"1.0","publisher_kid":"k","spki_sha256":"0000000000000000000000000000000000000000000000000000000000000000","issuer":"CN=x","rogue":true}`},
+		{"extra field", `{"soaHarnessVersion":"1.0","publisher_kid":"k","spki_sha256":"0000000000000000000000000000000000000000000000000000000000000000","issuer":"CN=x","rogue":true}`},
 		{"short spki_sha256", `{"soaHarnessVersion":"1.0","publisher_kid":"k","spki_sha256":"abc","issuer":"CN=x"}`},
 	}
-	schemaPath := h.Spec.Path(specvec.InitialTrustSchema)
-	for _, c := range cases {
+	for _, c := range inlineNegs {
 		if err := agentcard.ValidateJSON(schemaPath, []byte(c.body)); err == nil {
-			out = append(out, Evidence{Path: PathVector, Status: StatusFail,
-				Message: fmt.Sprintf("negative: %s should have been rejected by schema", c.name)})
-			return out
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("inline negative %q should have been rejected by schema", c.name)}}
 		}
 	}
-	out = append(out, Evidence{Path: PathVector, Status: StatusPass,
-		Message: fmt.Sprintf("%d negative fixtures correctly rejected by initial-trust schema (empty, wrong version, extra field, short spki)", len(cases))})
 
-	// Positive path: spec-repo gap.
-	out = append(out, Evidence{Path: PathVector, Status: StatusSkip,
-		Message: "HR-01 happy-path vector missing in spec repo (no test-vectors/initial-trust/ present); positive path deferred per plan, do not author locally"})
+	// Pinned positive: valid.json — must schema-validate AND semantically accept.
+	validBytes, err := h.Spec.Read(specvec.InitialTrustValid)
+	if err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+	}
+	if err := agentcard.ValidateJSON(schemaPath, validBytes); err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusFail,
+			Message: "valid.json should validate against schema: " + err.Error()}}
+	}
+	validBundle, err := inittrust.Parse(validBytes)
+	if err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+	}
+	if r := inittrust.SemanticValidate(validBundle, time.Now()); r != inittrust.ReasonAccept {
+		return []Evidence{{Path: PathVector, Status: StatusFail,
+			Message: fmt.Sprintf("valid.json semantic check: got reason %q, want accept", r)}}
+	}
+
+	// Pinned semantic-rejection: expired.json — MUST pass schema but MUST be
+	// rejected by the post-parse clock gate with reason bootstrap-expired.
+	expiredBytes, err := h.Spec.Read(specvec.InitialTrustExpired)
+	if err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+	}
+	if err := agentcard.ValidateJSON(schemaPath, expiredBytes); err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusFail,
+			Message: "expired.json must be schema-valid (rejection must come from semantic layer, not schema): " + err.Error()}}
+	}
+	expiredBundle, err := inittrust.Parse(expiredBytes)
+	if err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+	}
+	if r := inittrust.SemanticValidate(expiredBundle, time.Now()); r != inittrust.ReasonBootstrapExpired {
+		return []Evidence{{Path: PathVector, Status: StatusFail,
+			Message: fmt.Sprintf("expired.json: got reason %q, want bootstrap-expired", r)}}
+	}
+
+	// Pinned schema-layer negative: channel-mismatch.json — MUST be rejected
+	// by schema (closed enum on channel), NOT reach the semantic layer.
+	cmBytes, err := h.Spec.Read(specvec.InitialTrustChannelMismatch)
+	if err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+	}
+	if err := agentcard.ValidateJSON(schemaPath, cmBytes); err == nil {
+		return []Evidence{{Path: PathVector, Status: StatusFail,
+			Message: "channel-mismatch.json should have been rejected by schema (closed enum)"}}
+	}
+
+	out := []Evidence{{Path: PathVector, Status: StatusPass,
+		Message: "positive (valid.json accepted), semantic-reject (expired.json → bootstrap-expired), schema-reject (channel-mismatch.json rejected), plus 4 inline schema negatives"}}
 
 	if h.Live {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "HR-01 live path needs impl cold-start restart hook; impl has not exposed one"})
+			Message: "HR-01 live path needs impl cold-start restart hook"})
 	}
 	return out
 }
@@ -371,32 +419,79 @@ func handleHR01(ctx context.Context, h HandlerCtx) []Evidence {
 // runs; fresh/stale/expired state-machine vectors require pinned CRL bundles.
 
 func handleHR02(ctx context.Context, h HandlerCtx) []Evidence {
-	var out []Evidence
-	cases := []struct {
-		name, body string
-	}{
+	schemaPath := h.Spec.Path(specvec.CRLSchema)
+
+	// Inline schema negatives.
+	inlineNegs := []struct{ name, body string }{
 		{"empty CRL", `{}`},
 		{"missing revoked_kids", `{"issuer":"CN=x","issued_at":"2026-04-20T00:00:00Z","not_after":"2026-05-20T00:00:00Z"}`},
 		{"extra field", `{"issuer":"CN=x","issued_at":"2026-04-20T00:00:00Z","not_after":"2026-05-20T00:00:00Z","revoked_kids":[],"rogue":true}`},
 		{"revoked_kid missing required", `{"issuer":"CN=x","issued_at":"2026-04-20T00:00:00Z","not_after":"2026-05-20T00:00:00Z","revoked_kids":[{"kid":"k1"}]}`},
 	}
-	schemaPath := h.Spec.Path(specvec.CRLSchema)
-	for _, c := range cases {
+	for _, c := range inlineNegs {
 		if err := agentcard.ValidateJSON(schemaPath, []byte(c.body)); err == nil {
-			out = append(out, Evidence{Path: PathVector, Status: StatusFail,
-				Message: fmt.Sprintf("negative: %s should have been rejected", c.name)})
-			return out
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("inline negative %q should have been rejected", c.name)}}
 		}
 	}
-	out = append(out, Evidence{Path: PathVector, Status: StatusPass,
-		Message: fmt.Sprintf("%d negative CRL fixtures correctly rejected (empty, missing-required, extra-field, incomplete-revoked-kid)", len(cases))})
 
-	out = append(out, Evidence{Path: PathVector, Status: StatusSkip,
-		Message: "HR-02 fresh/stale/expired state-machine vectors missing in spec repo (no test-vectors/crl/ present); state-machine coverage deferred per plan"})
+	// State-machine coverage at T_ref = 2026-04-20T12:00:00Z.
+	type caseSpec struct {
+		name               string
+		vecPath            string
+		useTRef            bool
+		expectState        crlstate.State
+		expectAccept       bool
+		expectRefresh      bool
+		expectFailureCode  crlstate.Reason
+	}
+	cases := []caseSpec{
+		{"fresh.json @ T_ref", specvec.CRLFresh, true, crlstate.StateFresh, true, false, crlstate.ReasonAccept},
+		{"stale.json @ T_ref", specvec.CRLStale, true, crlstate.StateStaleButValid, true, true, crlstate.ReasonAccept},
+		{"expired.json (any clock)", specvec.CRLExpired, false, crlstate.StateExpired, false, false, crlstate.ReasonCRLExpired},
+	}
+	for _, c := range cases {
+		body, err := h.Spec.Read(c.vecPath)
+		if err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+		}
+		if err := agentcard.ValidateJSON(schemaPath, body); err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s must be schema-valid: %v", c.name, err)}}
+		}
+		crl, err := crlstate.Parse(body)
+		if err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusError, Message: err.Error()}}
+		}
+		now := crlRefClock
+		if !c.useTRef {
+			now = time.Now()
+		}
+		got := crlstate.Classify(crl, now)
+		if got.State != c.expectState {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s: state = %s, want %s", c.name, got.State, c.expectState)}}
+		}
+		if got.Accept != c.expectAccept {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s: accept = %v, want %v", c.name, got.Accept, c.expectAccept)}}
+		}
+		if got.RefreshNeeded != c.expectRefresh {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s: refresh-queued = %v, want %v", c.name, got.RefreshNeeded, c.expectRefresh)}}
+		}
+		if got.FailureReason != c.expectFailureCode {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s: failure_reason = %q, want %q", c.name, got.FailureReason, c.expectFailureCode)}}
+		}
+	}
+
+	out := []Evidence{{Path: PathVector, Status: StatusPass,
+		Message: "3 state-machine cases @ T_ref=2026-04-20T12:00:00Z (fresh=accept+no-refresh, stale=accept+refresh-queued, expired=fail-closed/crl-expired) + 4 inline schema negatives"}}
 
 	if h.Live {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "HR-02 live path needs impl CRL-cache introspection endpoint; none defined yet"})
+			Message: "HR-02 live path needs impl CRL-cache introspection endpoint"})
 	}
 	return out
 }

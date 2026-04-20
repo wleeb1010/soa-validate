@@ -44,4 +44,12 @@ const (
 
 	InitialTrustSchema = "schemas/initial-trust.schema.json"
 	CRLSchema          = "schemas/crl.schema.json"
+
+	InitialTrustValid           = "test-vectors/initial-trust/valid.json"
+	InitialTrustExpired         = "test-vectors/initial-trust/expired.json"
+	InitialTrustChannelMismatch = "test-vectors/initial-trust/channel-mismatch.json"
+
+	CRLFresh   = "test-vectors/crl/fresh.json"
+	CRLStale   = "test-vectors/crl/stale.json"
+	CRLExpired = "test-vectors/crl/expired.json"
 )

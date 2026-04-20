@@ -2,9 +2,9 @@
   "schema": "https://soa-harness.org/schemas/v1.0/pin-lock.schema.json",
   "description": "Pins this validator to a specific SOA-Harness specification commit. The must-maps, test vectors, and schemas that define 'conformant' behavior are read from the spec repo at exactly this commit. Bumping is a reviewable action; never bump silently.",
   "spec_repo": "https://github.com/wleeb1010/soa-harness-specification",
-  "spec_commit_sha": "1f72bf623ff4c026e505af95445da488b2bc07ed",
+  "spec_commit_sha": "9d251631ac6cb4b0c423483f540ced69d5b83fa8",
   "spec_commit_date": "2026-04-20",
-  "spec_manifest_sha256": "86590f565801ebf33b2820a8d86496eaee2b97e20076deaf44985020eae1d535",
+  "spec_manifest_sha256": "82c78d53636442e1fe9ba472023c5a67ea346be93af7c43c27aab9f3cb2a7337",
   "spec_manifest_status": "placeholder",
   "pin_history": [
     {"sha": "559dec8588441bc29639190870e4541146242b90", "bumped_to": "a9a92827ec26a472fc6ead653718982710890152", "reason": "adopt JCS parity vectors (commit 2e0a3fc) + license split (commit 2a66ddf) + regenerated MANIFEST (commit a9a9282). Coordinated lockstep bump with sibling soa-harness-impl."},
@@ -12,7 +12,8 @@
     {"sha": "b1497025b2edad68c82176043ec9ef784f243078", "bumped_to": "9f79302db2765fb494f62d807528eaf9680817e3", "reason": "adopt JS JCS library correction (commit 9f79302): @filen/rfc8785 does not exist on npm; replaced with canonicalize package by RFC 8785 co-author Samuel Erdtman. MANIFEST regenerated."},
     {"sha": "9f79302db2765fb494f62d807528eaf9680817e3", "bumped_to": "208e5dd9224f128c8ca47f28e83c8d8464d18b19", "reason": "adopt Go JCS library correction (commit 208e5dd): canonicaljson-go implements a different canonical-JSON spec (capital-E exponents, different escape rules) that disagrees with RFC 8785; replaced with gowebpki/jcs v1.0.1 which passes parity against canonicalize TS output byte-for-byte."},
     {"sha": "208e5dd9224f128c8ca47f28e83c8d8464d18b19", "bumped_to": "6c1bc9916472f23dcf237f5634f3ff33baff45e9", "reason": "adopt committed generator output (commit 6c1bc99): test-vectors/jcs-parity/generated/{floats,integers,nested,strings}.json — 47/47 libraries_agree=true across the two RFC-8785 libraries. MANIFEST.json unchanged (generated/ outside manifest scope), so spec_manifest_sha256 stays. Closes Week 0 JCS parity block for soa-validate."},
-    {"sha": "6c1bc9916472f23dcf237f5634f3ff33baff45e9", "bumped_to": "1f72bf623ff4c026e505af95445da488b2bc07ed", "reason": "adopt URL-shorthand clarification (commit 1f72bf6); no test-ID or vector change; aligns lock with sibling impl after first live e2e uncovered the shorthand ambiguity."}
+    {"sha": "6c1bc9916472f23dcf237f5634f3ff33baff45e9", "bumped_to": "1f72bf623ff4c026e505af95445da488b2bc07ed", "reason": "adopt URL-shorthand clarification (commit 1f72bf6); no test-ID or vector change; aligns lock with sibling impl after first live e2e uncovered the shorthand ambiguity."},
+    {"sha": "1f72bf623ff4c026e505af95445da488b2bc07ed", "bumped_to": "9d251631ac6cb4b0c423483f540ced69d5b83fa8", "reason": "adopt HR-01 initial-trust + HR-02 CRL state-machine positive-path vectors (commit 9d25163). Upgrades HR-01/HR-02 from negative-only to positive+negative coverage. MANIFEST regen: 63 → 71 supplementary_artifacts."}
   ],
   "consumed_artifacts": {
     "soa-validate-must-map.json": "the 213-test catalog this validator runs",
