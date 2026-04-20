@@ -1,0 +1,17 @@
+# CODEOWNERS — soa-validate
+#
+# Syntax: <path-glob>  <@owner1>  [<@owner2> ...]
+# At least one listed owner must approve PRs touching matched files.
+# Paths tagged [VALIDATOR-CORE] in the title require approval from TWO owners.
+
+# Default: maintainer review on all files
+*                           @wleeb1010
+
+# High-sensitivity validator-core paths — second reviewer required
+internal/jcs/               @wleeb1010
+internal/testrunner/        @wleeb1010
+internal/musmap/            @wleeb1010
+soa-validate.lock           @wleeb1010
+
+# TODO as maintainers are added, duplicate @wleeb1010 entries to enforce
+# the two-reviewer quorum rule for sensitive paths.
