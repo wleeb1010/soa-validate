@@ -4,7 +4,31 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
-## 2026-04-20 (Week 1, later)
+## 2026-04-20 (Week 1, end-of-day — FIRST GREEN E2E)
+
+**Done:**
+- **First real end-to-end green across all three repos.** `SOA_IMPL_URL=http://127.0.0.1:7700 soa-validate --profile=core --spec-vectors=<spec>` produces:
+  ```
+  SV-CARD-01     pass  passed (vector,live)
+  SV-SIGN-01     pass  passed (vector,live)
+  total=8 pass=2 fail=0 skip=6 error=0
+  ```
+  Per-path evidence:
+  - **SV-CARD-01 live:** 200 OK on `/.well-known/agent-card.json`, validates against `schemas/agent-card.schema.json`, `Cache-Control: max-age=300` ≤ 300s, ETag present (`0d86a163…`).
+  - **SV-SIGN-01 live:** 200 OK on `/.well-known/agent-card.jws` (spec-normative path), protected header is `{alg:"EdDSA", kid:"soa-release-v1.0", typ:"soa-agent-card+jws", x5c:["MIIBHDCBz6…"]}` — matches §6.1.1 row 1 exactly, including required `x5c`.
+- **Lock bumped `6c1bc99 → 1f72bf6`** (URL-shorthand clarification commit; `spec_manifest_sha256` unchanged).
+- **Week 1 scoreboard:**
+  | Test | vector | live | notes |
+  |---|---|---|---|
+  | SV-CARD-01 | pass | pass | schema + JCS idempotent + Cache-Control/ETag |
+  | SV-SIGN-01 | pass | pass | header shape (`typ=soa-agent-card+jws`, `x5c[0]` present); crypto verify against `trustAnchors` chain lands in M1 week 5 alongside HR-12 (ETag-triggered re-verify) |
+  | HR-01, HR-02, HR-12, HR-14, SV-BOOT-01, SV-PERM-01 | skip | skip | assertions land in M1 weeks 3/5/6 |
+
+**Meta observation:** the first live run exposed three impl↔spec divergences (URL path, JWS `typ`, missing `x5c`). Spec clarified §5.1 shorthand without normative change (commit `1f72bf6`); impl fixed all three per §6.1.1 row 1 literal. Independent-judge setup worked exactly as designed — same-author single-repo would've never surfaced these.
+
+---
+
+## 2026-04-20 (Week 1, earlier)
 
 **Done:**
 - **SV-CARD-01 + SV-SIGN-01 assertion logic complete, passing on the pinned spec vector.** No live Runner required.
