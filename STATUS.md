@@ -4,6 +4,38 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 2 day 2 late — pin at fe74d39; L-01 clock-injection normative; live HR-02/SV-PERM-01 still impl-side blocked)
+
+**Done:**
+- **Pin-bumped `9d25163 → fe74d39`**. `spec_commit_sha = fe74d3931e50f52697d8fab0c07336a9f3bb099e`, `spec_manifest_sha256 = 00d6755d…c6171c`. Single-reason bump: spec commit `fe74d39` lands L-01 clock-injection note at §10.6.1 — the `T_ref = 2026-04-20T12:00:00Z` harness injection the validator already uses for HR-02 now stands on spec-authored normative text (not just inferred from README). **No validator code change.**
+- Smoke re-run after pin bump against live impl at `127.0.0.1:7700`: **6 pass / 2 skip / 0 fail** — same scoreboard as day-2 close, confirming the bump is semantically a no-op on the assertion side.
+- `internal/crlstate` and `internal/inittrust` coverage stands unchanged; they already implement what §10.6.1's L-01 describes at the validator end.
+
+**Impl-side blockers for Week 2 formal close (neither has a >24h delay signal yet):**
+
+1. **SV-PERM-01 live path.** Impl's STATUS.md lists "live SV-PERM-01 smoke against the pda.jws fixture" as still *Active*. No HTTP endpoint is reachable on :7700 that serves the permission flow yet (probed `/permission`, `/permissions`, `/v1/permission`, `/prompt`, `/api/permission` — all 404). Permission resolver + PDA verifier code has landed on their side (108 tests, Core §10.3 + §10.4 modeled), so the gap is purely the HTTP wiring.
+2. **HR-02 live clock injection.** Impl STATUS makes no mention of a `RUNNER_TEST_CLOCK` env var or any clock-injectability hook. That plumbing is Week 2 exit-criterion work on their side; my validator is ready to consume it (just needs the Runner to honor T_ref on the CRL cache evaluation path).
+
+**Week 2 exit-criterion status:**
+
+| Criterion | State |
+|---|---|
+| SV-CARD-01 vector+live | **met** |
+| SV-SIGN-01 vector+live | **met** |
+| SV-BOOT-01 live | **met** |
+| SV-PERM-01 vector+live | vector met; **live waiting on impl HTTP permission endpoint** |
+| HR-01 positive-path vector | **met** |
+| HR-02 positive-path vector (3 states @ T_ref) | **met** |
+| HR-02 positive-path live (at T_ref via impl hook) | **waiting on impl clock-injection plumbing** |
+
+**Two auto-flip conditions on standby:**
+- When impl serves a permission endpoint + /ready = 200 post boot-wiring, SV-PERM-01 live handler will run against the wire — no validator code change needed.
+- When impl honors a `T_ref` / `RUNNER_TEST_CLOCK` injection, the HR-02 live handler path can be wired to send `X-SOA-Test-Clock` (or whatever header/env they accept) and assert the same three-state classification on the live side.
+
+**Flag for coordination:** if impl indicates >24h slippage on either piece, I'll propose either (a) rolling those live cells into Week 3, or (b) offering specific support on the clock-hook design (the §10.6.1 L-01 text gives a clean contract to implement against).
+
+---
+
 ## 2026-04-20 (Week 2 day 2 — HR-01 + HR-02 upgraded to positive+negative; pin at 9d25163)
 
 **Done:**
