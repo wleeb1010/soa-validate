@@ -24,7 +24,7 @@ Run the 213 tests in `soa-validate-must-map.json` against a live Runner or Gatew
 
 ### 1. Go, not TS
 - Single static binary drops into any CI (`curl -L ... && ./soa-validate`)
-- Spec endorses `canonicaljson-go` for JCS
+- Spec endorses `gowebpki/jcs` for JCS
 - Forces cross-language byte-equivalence testing — if Go validator and TS impl agree on a JCS output, that's real interop evidence
 
 ### 2. Separate repo from reference impl
@@ -42,7 +42,7 @@ This validator ships a stub that runs exactly these 8. Bigger coverage lands in 
 ### 4. JCS cross-language byte-equivalence is load-bearing
 - Week 0 parity harness lives in `soa-harness-impl/packages/core/test/parity/`
 - Vectors live in spec repo at `test-vectors/jcs-parity/`
-- Go side uses `canonicaljson-go`; TS side uses `canonicalize`
+- Go side uses `gowebpki/jcs`; TS side uses `canonicalize`
 - If they disagree, every signed artifact fails cross-verification — **blocks M1 until resolved**
 
 ### 5. Milestone alignment with sibling impl
@@ -66,8 +66,8 @@ This validator's output IS the evidence for either claim.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Language | Go 1.22+ | Single static binary, spec-endorsed `canonicaljson-go` |
-| JCS | `github.com/gibson042/canonicaljson-go` | Spec-named in `docs/deployment-environment.md` |
+| Language | Go 1.22+ | Single static binary, spec-endorsed `gowebpki/jcs` |
+| JCS | `github.com/gibson042/gowebpki/jcs` | Spec-named in `docs/deployment-environment.md` |
 | JWS | `github.com/go-jose/go-jose/v3` | Active, passes all RFC 7515 compliance tests |
 | HTTP client | stdlib `net/http` + custom mTLS config | No framework needed for a test client |
 | JUnit XML | `github.com/jstemmer/go-junit-report` or similar | Standard CI consumption format |
