@@ -42,7 +42,7 @@ This validator ships a stub that runs exactly these 8. Bigger coverage lands in 
 ### 4. JCS cross-language byte-equivalence is load-bearing
 - Week 0 parity harness lives in `soa-harness-impl/packages/core/test/parity/`
 - Vectors live in spec repo at `test-vectors/jcs-parity/`
-- Go side uses `canonicaljson-go`; TS side uses `@filen/rfc8785`
+- Go side uses `canonicaljson-go`; TS side uses `canonicalize`
 - If they disagree, every signed artifact fails cross-verification — **blocks M1 until resolved**
 
 ### 5. Milestone alignment with sibling impl
