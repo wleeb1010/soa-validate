@@ -11,14 +11,14 @@ import (
 )
 
 type Suites struct {
-	XMLName xml.Name `xml:"testsuites"`
-	Name    string   `xml:"name,attr"`
-	Tests   int      `xml:"tests,attr"`
-	Failures int     `xml:"failures,attr"`
-	Errors  int      `xml:"errors,attr"`
-	Skipped int      `xml:"skipped,attr"`
-	Time    string   `xml:"time,attr"`
-	Suites  []Suite  `xml:"testsuite"`
+	XMLName  xml.Name `xml:"testsuites"`
+	Name     string   `xml:"name,attr"`
+	Tests    int      `xml:"tests,attr"`
+	Failures int      `xml:"failures,attr"`
+	Errors   int      `xml:"errors,attr"`
+	Skipped  int      `xml:"skipped,attr"`
+	Time     string   `xml:"time,attr"`
+	Suites   []Suite  `xml:"testsuite"`
 }
 
 type Suite struct {
@@ -32,12 +32,23 @@ type Suite struct {
 }
 
 type TestCase struct {
-	Classname string   `xml:"classname,attr"`
-	Name      string   `xml:"name,attr"`
-	Time      string   `xml:"time,attr"`
-	Skipped   *SkipTag `xml:"skipped,omitempty"`
-	Failure   *FailTag `xml:"failure,omitempty"`
-	Error     *FailTag `xml:"error,omitempty"`
+	Classname  string      `xml:"classname,attr"`
+	Name       string      `xml:"name,attr"`
+	Time       string      `xml:"time,attr"`
+	Properties *Properties `xml:"properties,omitempty"`
+	Skipped    *SkipTag    `xml:"skipped,omitempty"`
+	Failure    *FailTag    `xml:"failure,omitempty"`
+	Error      *FailTag    `xml:"error,omitempty"`
+	SystemOut  string      `xml:"system-out,omitempty"`
+}
+
+type Properties struct {
+	Props []Property `xml:"property"`
+}
+
+type Property struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
 }
 
 type SkipTag struct {
@@ -50,7 +61,10 @@ type FailTag struct {
 	Body    string `xml:",chardata"`
 }
 
-// Write serializes results as a single-suite JUnit XML document to w.
+// Write serializes results as a single-suite JUnit XML doc. Each test case
+// carries a <properties> block with one entry per evidence path ("vector",
+// "live") so CI can differentiate passed-on-vector from passed-on-live from
+// skipped-waiting-on-impl.
 func Write(w io.Writer, suiteName string, results []testrunner.Result) error {
 	total := len(results)
 	var failures, errors, skipped int
@@ -61,6 +75,23 @@ func Write(w io.Writer, suiteName string, results []testrunner.Result) error {
 			Classname: classify(r.ID),
 			Name:      r.ID,
 			Time:      fmtSeconds(r.Duration),
+		}
+		if len(r.Evidence) > 0 {
+			var props []Property
+			var outcomes []string
+			for _, e := range r.Evidence {
+				props = append(props, Property{
+					Name:  "evidence." + string(e.Path),
+					Value: string(e.Status),
+				})
+				props = append(props, Property{
+					Name:  "evidence." + string(e.Path) + ".message",
+					Value: e.Message,
+				})
+				outcomes = append(outcomes, fmt.Sprintf("%s=%s (%s)", e.Path, e.Status, e.Message))
+			}
+			tc.Properties = &Properties{Props: props}
+			tc.SystemOut = strings.Join(outcomes, "\n")
 		}
 		switch r.Status {
 		case testrunner.StatusSkip:
@@ -78,22 +109,12 @@ func Write(w io.Writer, suiteName string, results []testrunner.Result) error {
 	}
 
 	suite := Suite{
-		Name:     suiteName,
-		Tests:    total,
-		Failures: failures,
-		Errors:   errors,
-		Skipped:  skipped,
-		Time:     fmtSeconds(totalDur),
-		Cases:    cases,
+		Name: suiteName, Tests: total, Failures: failures, Errors: errors,
+		Skipped: skipped, Time: fmtSeconds(totalDur), Cases: cases,
 	}
 	doc := Suites{
-		Name:     suiteName,
-		Tests:    total,
-		Failures: failures,
-		Errors:   errors,
-		Skipped:  skipped,
-		Time:     fmtSeconds(totalDur),
-		Suites:   []Suite{suite},
+		Name: suiteName, Tests: total, Failures: failures, Errors: errors,
+		Skipped: skipped, Time: fmtSeconds(totalDur), Suites: []Suite{suite},
 	}
 	if _, err := io.WriteString(w, xml.Header); err != nil {
 		return err
@@ -106,8 +127,6 @@ func Write(w io.Writer, suiteName string, results []testrunner.Result) error {
 	return enc.Flush()
 }
 
-// classify derives a JUnit classname from a test ID. "HR-01" → "HR",
-// "SV-SIGN-01" → "SV.SIGN", "UV-T-03a" → "UV.T".
 func classify(id string) string {
 	parts := strings.Split(id, "-")
 	if len(parts) < 2 {
