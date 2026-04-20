@@ -33,7 +33,15 @@ func (l Locator) Read(rel string) ([]byte, error) {
 
 // Well-known paths — one place to change if the spec restructures.
 const (
-	AgentCardJSON    = "test-vectors/agent-card.json"
-	AgentCardJWS     = "test-vectors/agent-card.json.jws"
-	AgentCardSchema  = "schemas/agent-card.schema.json"
+	AgentCardJSON   = "test-vectors/agent-card.json"
+	AgentCardJWS    = "test-vectors/agent-card.json.jws"
+	AgentCardSchema = "schemas/agent-card.schema.json"
+
+	PermissionPromptJSON    = "test-vectors/permission-prompt/permission-prompt.json"
+	CanonicalDecisionJSON   = "test-vectors/permission-prompt/canonical-decision.json"
+	PDAJWS                  = "test-vectors/permission-prompt/pda.jws"
+	CanonicalDecisionSchema = "schemas/canonical-decision.schema.json"
+
+	InitialTrustSchema = "schemas/initial-trust.schema.json"
+	CRLSchema          = "schemas/crl.schema.json"
 )

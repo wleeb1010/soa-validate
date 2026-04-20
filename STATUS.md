@@ -4,6 +4,54 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 2 — SV-PERM-01 + HR-01 + HR-02 vector green; SV-BOOT-01 surfaces impl gap)
+
+**Week 2 scoreboard:**
+
+| Test | vector | live | note |
+|---|---|---|---|
+| SV-CARD-01 | pass | pass | carried over from Week 1 |
+| SV-SIGN-01 | pass | pass | carried over from Week 1 |
+| **SV-PERM-01** | **pass** | skip | live waiting on impl permission endpoint |
+| **HR-01** | **pass (negative)** | skip | positive vector missing — see spec-repo gap below |
+| **HR-02** | **pass (negative)** | skip | positive vector missing — see spec-repo gap below |
+| **SV-BOOT-01** | skip | **fail** | impl has not shipped §5.4 `/health` + `/ready` — **real conformance gap** |
+| HR-12, HR-14 | skip | skip | M1 week 5 |
+
+**Done:**
+- `internal/permprompt` package — loads + schema-validates the pinned `permission-prompt/` vector set (prompt, canonical_decision, PDA-JWS), enforces UV-P-18 nonce equality + prompt_id equality. 4 unit tests.
+- **SV-PERM-01 vector path** confirms:
+  - `canonical-decision.json` validates against `schemas/canonical-decision.schema.json`
+  - `decision.nonce == prompt.payload.nonce` ("q9Zt-X8bL4rFvH2kNpR7wS")
+  - `JCS(canonical-decision.json)` = **385 bytes**, matching the pinned count in `test-vectors/permission-prompt/README.md`
+  - `sha256(JCS(canonical-decision.json))` = **`7bc890692f68b7d3b842380fcf9739f9987bf77c6cdf4c7992aac31c66fe4a8a`**, matching the pinned digest in the spec README — **first cross-library digest equality against a spec-authored expected value**
+  - `pda.jws` parses with `alg=EdDSA, typ=soa-pda+jws`; signature is placeholder (crypto verify deferred)
+- **HR-01 vector path** — negative-path coverage only: 4 inline fixtures (`{}`, wrong `soaHarnessVersion`, extra field via `additionalProperties:false`, short `spki_sha256`) all correctly rejected by `schemas/initial-trust.schema.json`.
+- **HR-02 vector path** — negative-path coverage only: 4 inline fixtures (`{}`, missing `revoked_kids`, extra field, incomplete-revoked-kid) all correctly rejected by `schemas/crl.schema.json`.
+- **SV-BOOT-01 live path** — probes `/health` + `/ready`; reports impl gap when both 404.
+
+**Spec-repo gaps flagged (per plan: DO NOT author expected outputs locally):**
+
+1. **HR-01 happy-path vector** — no `test-vectors/initial-trust/` directory. Minimum scope needed:
+   - `valid.json`: legit bundle with a real `publisher_kid` + `spki_sha256` matching a specific trust anchor
+   - `expired.json`: same as valid but `not_after` in the past
+   - `channel-mismatch.json`: channel value not in the `sdk-pinned` | `operator-bundled` | `dnssec-txt` enum
+   Would be generated deterministically (like `jcs-parity/`): input bundle → schema-validated output with expected validation outcome.
+
+2. **HR-02 CRL state-machine vectors** — no `test-vectors/crl/` directory. Minimum scope: fresh (now < not_after), stale (warning window pre-expiry), expired (past not_after). Each case's expected Runner behavior per §5.3 would be pinned.
+
+**Impl gap surfaced by SV-BOOT-01:**
+- `GET /health` → 404, `GET /ready` → 404. Both are required by Core §5.4 (liveness + readiness probes) for M1 conformance. Not failing the test softly — this is a loud 'fail' line until impl ships them. Live SV-BOOT-01 will flip to pass the moment both probes come up.
+
+**Active:**
+- Nothing blocked on this side. When impl's Week 2 (StreamEvent SSE) + §5.4 probes land, re-run live.
+
+**Command used:**
+- Vector-only: `soa-validate --profile=core --spec-vectors=<spec>` → 5 pass / 3 skip
+- Full: `SOA_IMPL_URL=http://127.0.0.1:7700 soa-validate --profile=core --spec-vectors=<spec>` → 5 pass / 2 skip / 1 fail
+
+---
+
 ## 2026-04-20 (Week 1, end-of-day — FIRST GREEN E2E)
 
 **Done:**
