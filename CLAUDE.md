@@ -53,3 +53,32 @@ M2–M5: expand coverage toward the full 213-test must-map.
 - `go test ./...` — green
 - `go build ./cmd/soa-validate` — produces a runnable binary
 - If touching the must-map loader in `internal/musmap/`, verify all fields from the current `soa-validate-must-map.json` round-trip correctly
+
+## Parallel Claude Code sessions
+
+You may be running alongside a sibling session in `../soa-harness-impl/` (and occasionally in `../soa-harness=specification/`). Each session has its own task list and memory — **nothing crosses session boundaries automatically**.
+
+**This repo's whole point is to be the independent judge.** Cross-session coordination is necessary for scheduling, never for deciding what counts as "conformant." That decision always lives in the spec repo.
+
+Coordination scenarios:
+- **Impl changed its wire format** → they open an issue here, you update test expectations, merge in lockstep
+- **You found a gap in must-map coverage** → open an issue on `soa-harness-specification`, not here
+- **Spec pinned to a new MANIFEST digest** → validator and impl bump `soa-validate.lock` simultaneously
+
+See `COORDINATION.md` for the full protocol.
+
+**Never do** in this repo:
+- Compute expected conformance values (spec test-vector tooling does this)
+- Modify must-map files (spec repo owns them)
+- Silently bump `soa-validate.lock` (impl session depends on lockstep)
+- Test against a Runner pinned to a different spec commit than your lock
+
+## Session startup context
+
+On first session start in this repo, read in this order:
+1. `CONTEXT.md` — condensed summary of where we are, what's been decided, what ships next
+2. `~/.claude/plans/soa-validate-m1.md` — the M1 tactical plan
+3. `~/.claude/plans/put-a-plan-together-glittery-hartmanis.md` — the full roadmap across all three repos
+4. `soa-validate.lock` — which spec commit this validator targets
+
+`graphify-spec` MCP is already registered and connected (user level). Use it for every spec question before grepping.
