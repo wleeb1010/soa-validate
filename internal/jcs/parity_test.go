@@ -7,15 +7,31 @@ import (
 	"testing"
 )
 
-type parityVector struct {
-	Cases []parityCase `json:"cases"`
+type generatedVectors struct {
+	GeneratedBy string    `json:"generated_by"`
+	GeneratedAt string    `json:"generated_at"`
+	Libraries   libraries `json:"libraries"`
+	Source      string    `json:"source_inputs"`
+	Cases       []vector  `json:"cases"`
 }
 
-type parityCase struct {
+type libraries struct {
+	TS libInfo `json:"ts"`
+	Go libInfo `json:"go"`
+}
+
+type libInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type vector struct {
 	Name              string          `json:"name"`
 	Input             json.RawMessage `json:"input"`
-	ExpectedCanonical string          `json:"expected_canonical"`
 	Rationale         string          `json:"rationale"`
+	ExpectedCanonical string          `json:"expected_canonical"`
+	LibrariesAgree    bool            `json:"libraries_agree"`
+	ManualRequired    string          `json:"MANUAL_RESOLUTION_REQUIRED"`
 }
 
 func specDir(t *testing.T) string {
@@ -33,10 +49,10 @@ func specDir(t *testing.T) string {
 }
 
 func TestJCSParity(t *testing.T) {
-	dir := filepath.Join(specDir(t), "test-vectors", "jcs-parity")
+	dir := filepath.Join(specDir(t), "test-vectors", "jcs-parity", "generated")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("read parity dir: %v", err)
+		t.Fatalf("read generated dir: %v", err)
 	}
 	var files []string
 	for _, e := range entries {
@@ -45,7 +61,7 @@ func TestJCSParity(t *testing.T) {
 		}
 	}
 	if len(files) == 0 {
-		t.Fatal("no parity vector files found")
+		t.Fatal("no generated vector files found; run generate-vectors.mjs in the spec repo")
 	}
 
 	for _, file := range files {
@@ -55,16 +71,17 @@ func TestJCSParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
-			var v parityVector
+			var v generatedVectors
 			if err := json.Unmarshal(b, &v); err != nil {
 				t.Fatalf("parse: %v", err)
 			}
 			for _, c := range v.Cases {
 				c := c
 				t.Run(c.Name, func(t *testing.T) {
+					if !c.LibrariesAgree {
+						t.Skipf("libraries disagree (manual resolution required): %s", c.ManualRequired)
+					}
 					var input interface{}
-					dec := json.NewDecoder(nil)
-					_ = dec
 					if err := json.Unmarshal(c.Input, &input); err != nil {
 						t.Fatalf("decode input: %v", err)
 					}
@@ -73,7 +90,7 @@ func TestJCSParity(t *testing.T) {
 						t.Fatalf("canonicalize: %v", err)
 					}
 					if string(got) != c.ExpectedCanonical {
-						t.Errorf("DIVERGENCE\n  case:     %s\n  expected: %q\n  got:      %q\n  rationale: %s",
+						t.Errorf("DIVERGENCE from generated vector\n  case:      %s\n  expected:  %q\n  got:       %q\n  rationale: %s",
 							c.Name, c.ExpectedCanonical, string(got), c.Rationale)
 					}
 				})

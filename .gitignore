@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Validator outputs (CI emits these to disk; never committed)
+/release-gate.json
+/release-gate.junit.xml
+
