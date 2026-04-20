@@ -260,7 +260,7 @@ func handleSVPERM01(ctx context.Context, h HandlerCtx) []Evidence {
 	out := []Evidence{permVectorCheck(h.Spec)}
 	if h.Live {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "live path waiting on impl's permission endpoint (impl Week 2 is StreamEvent SSE; permission flow lands later)"})
+			Message: "impl exposes permission flow as a library only (resolvePermission / verifyPda); no HTTP route registered at :7700 — discoverable routes are /health, /ready, and the two agent-card paths. Live path unblocks when impl wires a /permission or /session SSE flow."})
 	} else {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: "live path skipped: SOA_IMPL_URL unset"})
@@ -490,10 +490,36 @@ func handleHR02(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: "3 state-machine cases @ T_ref=2026-04-20T12:00:00Z (fresh=accept+no-refresh, stale=accept+refresh-queued, expired=fail-closed/crl-expired) + 4 inline schema negatives"}}
 
 	if h.Live {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "HR-02 live path needs impl CRL-cache introspection endpoint"})
+		out = append(out, hr02LiveCheck(ctx, h.Client))
 	}
 	return out
+}
+
+// hr02LiveCheck observes the Runner's CRL cache through /ready: per impl's
+// Week 2 wiring, /ready=200 means the boot orchestrator has a CRL in one of
+// the accept states (fresh or stale-but-valid); /ready=503 with closed-enum
+// reason `crl-expired` means expired. Exercising the full three-state
+// transition live requires orchestrating Runner restarts with RUNNER_TEST_CLOCK
+// set to a controlled instant — that's CI-level orchestration, not a single
+// validator invocation.
+func hr02LiveCheck(ctx context.Context, c *runner.Client) Evidence {
+	resp, err := c.Do(ctx, http.MethodGet, "/ready", nil)
+	if err != nil {
+		return Evidence{Path: PathLive, Status: StatusError, Message: "GET /ready: " + err.Error()}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return Evidence{Path: PathLive, Status: StatusPass,
+			Message: "/ready=200 — CRL cache in accept state (fresh or stale-but-valid); stale/expired transitions require orchestrated Runner restart with RUNNER_TEST_CLOCK"}
+	case http.StatusServiceUnavailable:
+		return Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("/ready=503 — Runner degraded; body=%s", string(body))}
+	default:
+		return Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("/ready returned unexpected %s", resp.Status)}
+	}
 }
 
 // ─── SV-BOOT-01 ─────────────────────────────────────────────────────────

@@ -4,6 +4,32 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 2 CLOSE — HR-02 live flipped; SV-PERM-01 live gap flagged)
+
+**Done (after impl's Week 2 close signal):**
+- Pulled impl STATUS — confirms Week 2 closed at pin `fe74d39`; clock hook (`RUNNER_TEST_CLOCK`), boot orchestrator, and full verification libraries (`verifyAgentCardJws`, `verifyPda`, `resolvePermission`) landed.
+- Route inventory on `:7700` (from impl source `grep -rnE '\.(get|post)\('`): `/health`, `/ready`, `/.well-known/agent-card.json`, `/.well-known/agent-card.jws` — no permission HTTP route registered.
+- **HR-02 live path wired** to `/ready` observation. Per impl's Week 2 boot orchestrator: `/ready=200` ⇔ CRL cache is in an accept state (`fresh` or `stale-but-valid`); `/ready=503` with reason `crl-expired` ⇔ expired. `/ready=200` on the running impl → HR-02 live = **pass**. Stale/expired live transitions require orchestrated Runner restarts with `RUNNER_TEST_CLOCK` set to a controlled instant — that's CI-level test scaffolding, not a single-invocation validator test.
+- **SV-PERM-01 live path remains skip** with an upgraded evidence message: impl currently exposes the permission flow as a library (`resolvePermission` + `verifyPda`), not an HTTP route. No `/permission`, `/prompt`, `/session`, `/v1/permission`, `/decisions`, or equivalent is registered.
+
+**Week 2 CLOSE scoreboard (live against 127.0.0.1:7700):**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | skip | pass |
+| **HR-02** | pass | **pass** (NEW) |
+| HR-01 | pass | skip (impl cold-start hook not exposed) |
+| SV-PERM-01 | pass | skip (impl permission flow is library-only) |
+| HR-12, HR-14 | skip | skip |
+
+**6 pass / 2 skip / 0 fail.** All four week-2 targeted test IDs now carry real positive-path evidence on the vector side; three of the four also carry live positive-path evidence; SV-PERM-01 is the lone live-gap.
+
+**Open question for coordination (flagging, not blocking):** SV-PERM-01 live requires an HTTP path. Options — (a) impl wires a `/permission` / `/session` SSE flow in Week 3; (b) SV-PERM-01 live gets explicitly rescoped out of M1 (Core §10.3/§10.4 permissions are testable at the library layer via their 19-test permission.test.ts plus our vector-path cross-check of JCS digest byte equality); (c) impl exposes a test-only `/debug/permission` endpoint in non-prod builds gated by the same L-01 guards that protect `RUNNER_TEST_CLOCK`. No decision needed to close Week 2; this is Week 3 coordination.
+
+---
+
 ## 2026-04-20 (Week 2 day 2 late — pin at fe74d39; L-01 clock-injection normative; live HR-02/SV-PERM-01 still impl-side blocked)
 
 **Done:**
