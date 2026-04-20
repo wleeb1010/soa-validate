@@ -77,8 +77,10 @@ See `COORDINATION.md` for the full protocol.
 
 On first session start in this repo, read in this order:
 1. `CONTEXT.md` — condensed summary of where we are, what's been decided, what ships next
-2. `~/.claude/plans/soa-validate-m1.md` — the M1 tactical plan
+2. `docs/plans/m1.md` — the M1 tactical plan (authoritative, lives in this repo, versioned with the code)
 3. `~/.claude/plans/put-a-plan-together-glittery-hartmanis.md` — the full roadmap across all three repos
 4. `soa-validate.lock` — which spec commit this validator targets
+
+Older note: `~/.claude/plans/soa-validate-m1.md` may exist as a user-level convenience copy. If it disagrees with `docs/plans/m1.md`, the repo-local file is authoritative.
 
 `graphify-spec` MCP is already registered and connected (user level). Use it for every spec question before grepping.
