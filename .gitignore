@@ -35,3 +35,6 @@ go.work.sum
 /release-gate.json
 /release-gate.junit.xml
 
+# Per-session local state (Claude Code)
+.claude/
+
