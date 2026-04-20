@@ -4,6 +4,30 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 2 day 1 close — SV-BOOT-01 flipped green after impl shipped §5.4 probes)
+
+**Done:**
+- Impl shipped `GET /health` and `GET /ready`; both return 200. SV-BOOT-01 live flipped **fail → pass** on re-run — no code change on this side.
+- Full scoreboard at end of Week 2 day 1:
+
+  | Test | vector | live |
+  |---|---|---|
+  | SV-CARD-01 | pass | pass |
+  | SV-SIGN-01 | pass | pass |
+  | SV-PERM-01 | pass | skip (waiting on impl permission endpoint) |
+  | HR-01 | pass (negative) | skip (cold-start hook) |
+  | HR-02 | pass (negative) | skip (CRL introspection) |
+  | **SV-BOOT-01** | skip | **pass** |
+  | HR-12, HR-14 | skip | skip |
+
+  **6 pass / 2 skip / 0 fail.** First clean exit against a live Runner.
+
+**Tomorrow:**
+- Pin-bump to spec commit `9d25163` (new `HR-01` + `HR-02` positive-path vectors land). `spec_manifest_sha256` changes on this bump. Upgrade HR-01 / HR-02 vector assertions from negative-only to negative + positive.
+- When impl's permission resolver + PDA verifier ship, SV-PERM-01 live can flip green too.
+
+---
+
 ## 2026-04-20 (Week 2 — SV-PERM-01 + HR-01 + HR-02 vector green; SV-BOOT-01 surfaces impl gap)
 
 **Week 2 scoreboard:**
