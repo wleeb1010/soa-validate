@@ -75,16 +75,13 @@ func run(cfg config) error {
 	var client *runner.Client
 	var live bool
 	if cfg.implURL != "" {
+		// Live path is enabled as soon as --impl-url / SOA_IMPL_URL is set.
+		// The handler for each test performs its own endpoint probe — a
+		// missing endpoint becomes a PathLive failure on that test, not a
+		// silent skip at startup.
 		client = runner.New(runner.Config{BaseURL: cfg.implURL, Timeout: 5 * time.Second})
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		if err := client.Health(ctx); err == nil {
-			live = true
-		}
-	}
-	if client == nil {
-		// No impl URL at all: construct an unusable client so handlers have a
-		// non-nil value but live path is disabled.
+		live = true
+	} else {
 		client = runner.New(runner.Config{BaseURL: ""})
 	}
 
