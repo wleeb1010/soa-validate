@@ -4,6 +4,44 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 1 — pin at 2eccf6e; §10.3.1 endpoint is the root-cause fix for SV-PERM-01 live gap; awaiting impl)
+
+**Done:**
+- **Pin-bumped `fe74d39 → 2eccf6e`**. `spec_commit_sha = 2eccf6e6fc4c4c55da0afdcff315f50c4f0e9f82`, `spec_manifest_sha256 = 838cacbc…f40b8770`. Single-reason bump: spec commit `2eccf6e` adds **§10.3.1 Permission Decision Observability** — a new normative endpoint `GET /permissions/resolve?tool=<tool_name>&session_id=<session_id>` plus `schemas/permissions-resolve-response.schema.json`. This is the **root-cause fix** for the Week 2 SV-PERM-01 live-path gap (previously: no HTTP surface for the permission flow; I proposed and the user correctly pushed back on a /ready-proxy workaround; instead, the spec now mandates the surface).
+- Confirmed spec MANIFEST digest locally matches the value in the user's paste.
+- **No validator code changes landed today.** Week 3 validator work waits on impl shipping the endpoint.
+
+**Endpoint shape the validator will consume (from §10.3.1 + the new schema):**
+- `GET /permissions/resolve?tool=<name>&session_id=<sid>` over TLS 1.3; session-scoped bearer required
+- Response 200: `{decision ∈ {AutoAllow, Prompt, Deny, CapabilityDenied, ConfigPrecedenceViolation}, resolved_control, resolved_capability, reason (closed enum), trace[1..5], resolved_at, runner_version, policy_endpoint_applied?}`
+- **Not-a-side-effect property (normative MUST):** the query MUST NOT mutate the audit log's `this_hash` chain, emit StreamEvents, or change session/registry/CRL state. Validator asserts this by reading audit tail hash before and after the query batch.
+- Deterministic `args_digest` fixture value: literal string `"SOA-PERM-RESOLVE-QUERY"` on any forwarded `policyEndpoint` POST.
+
+**Week 3 validator work queued (runs once impl ships):**
+1. Wire `permissions-resolve-response.schema.json` into the schema registry.
+2. Establish a validator session via impl's bearer-provisioning surface (details TBD from impl).
+3. For each tool in the pinned Tool Registry fixture × each `activeMode` value, GET `/permissions/resolve?tool=<name>&session_id=<sid>`.
+4. Assert `decision` matches the §10.3 algorithm output computed validator-side from the same fixture inputs.
+5. Not-a-side-effect: read audit-log tail `this_hash` before/after the batch; assert equal. Mutation → loud fail.
+
+**HR-02 live — clarification (no change):** /ready proxy stays as the binary accept/reject check per coordination. Evidence message explicitly scopes its claim: `/ready=200` ⇔ CRL cache in an accept state; full three-state-precise live coverage defers to L-10 or a future diagnostic surface. Not claiming the full HR-02 live invariant.
+
+**Active (this repo):** nothing — awaiting impl's `/permissions/resolve` ship signal.
+
+**Scoreboard unchanged from Week 2 CLOSE:**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| HR-02 | pass | pass (binary accept/reject only; see clarification above) |
+| HR-01 | pass | skip (cold-start hook not exposed) |
+| SV-PERM-01 | pass | skip (endpoint pending impl) |
+| HR-12, HR-14 | skip | skip |
+
+---
+
 ## 2026-04-20 (Week 2 CLOSE — HR-02 live flipped; SV-PERM-01 live gap flagged)
 
 **Done (after impl's Week 2 close signal):**
