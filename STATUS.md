@@ -776,6 +776,42 @@ Impl shipped T-3 (/budget/projection + /tools/registered) + T-0 (Memory MCP mock
 
 ---
 
+## 2026-04-22 (M3 Week 1 Day 1 — :7700 bounced; +4 M3 greens landed)
+
+Impl restarted `:7700` against HEAD (includes `8b5d650` T-3 scaffolds). First M3 live-greens landed.
+
+### Scoreboard (pin `5e97277`, 72 test IDs) — **35 pass / 0 fail / 37 skip / 0 error**
+
+**+4 M3 live-greens (first of M3):**
+- **SV-BUD-PROJ-01** — `GET /budget/projection/<session_id>` 200 + schema-valid per §13.5 (cold-start quiescent body: `safety_factor=1.15`, `cumulative_tokens_consumed=0`).
+- **SV-BUD-PROJ-02** — §13.5 not-a-side-effect: two rapid reads byte-identical after stripping `generated_at`.
+- **SV-REG-OBS-01** — `GET /tools/registered` 200 + schema-valid per §11.4 (8 tools loaded from static fixture; `registry_version=sha256:685ab7e9…`).
+- **SV-REG-OBS-02** — §11.4 not-a-side-effect: byte-identity across two reads.
+
+### Updated machine-readable block
+
+```
+<!-- machine-readable -->
+{
+  "week": 1,
+  "v_tasks_landed": ["V-1","V-2","V-3","V-4","V-5","V-6","V-7"],
+  "scoreboard": {"pass": 35, "skip": 37, "fail": 0, "error": 0},
+  "pre_budgeted_skip_count": 2,
+  "real_slip_count": 0,
+  "spec_pin": "5e97277",
+  "m3_handlers_wired": 40,
+  "m3_live_green": 4,
+  "m3_target_live_greens": 120,
+  "m3_skip_budget": 19,
+  "awaiting": "impl T-1 (/memory/state) + T-2 (/events/recent); Week-2 T-4 + T-5 still forward-scheduled"
+}
+<!-- /machine-readable -->
+```
+
+**Next impl trigger:** T-1 + T-2 in Week 1. Then T-4 (real p95 accounting) + T-5 (dynamic registry) in Week 2. M3 handlers auto-flip on each landing — no validator code change.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
