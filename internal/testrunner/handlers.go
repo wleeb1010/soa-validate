@@ -694,6 +694,40 @@ func handleSVSESSBOOT02(ctx context.Context, h HandlerCtx) []Evidence {
 	return out
 }
 
+// liveCardHasL24Anchor returns true when the running Runner's Agent Card
+// includes a trust anchor whose spki_sha256 prefix matches the L-24
+// pinned handler key. Used by SV-PERM-21 to differentiate "L-24 not
+// adopted yet" from "L-24 anchor present but resolvePdaVerifyKey unwired".
+func liveCardHasL24Anchor(ctx context.Context, c *runner.Client) bool {
+	resp, err := c.Do(ctx, http.MethodGet, "/.well-known/agent-card.json", nil)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var card struct {
+		Security struct {
+			TrustAnchors []struct {
+				PublisherKid string `json:"publisher_kid"`
+				SpkiSha256   string `json:"spki_sha256"`
+			} `json:"trustAnchors"`
+		} `json:"security"`
+	}
+	if err := json.Unmarshal(body, &card); err != nil {
+		return false
+	}
+	for _, a := range card.Security.TrustAnchors {
+		if a.PublisherKid == specvec.HandlerKeyKID {
+			return true
+		}
+		// Also accept SPKI prefix match in case kid varies in deployments.
+		if strings.HasPrefix(a.SpkiSha256, "749f3fd468e5a7e7") {
+			return true
+		}
+	}
+	return false
+}
+
 func probeRunningCardActiveMode(ctx context.Context, c *runner.Client) string {
 	resp, err := c.Do(ctx, http.MethodGet, "/.well-known/agent-card.json", nil)
 	if err != nil {
@@ -1839,10 +1873,17 @@ func handleSVPERM21(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: "POST /permissions/decisions: " + err.Error()})
 		return out
 	}
-	// Honest skip: deployment lacks PDA verify wiring.
+	// Honest skip: deployment lacks PDA verify wiring. Differentiate two
+	// sub-states of the L-24 adoption based on what's actually on the wire.
 	if status == http.StatusServiceUnavailable && bytes.Contains(raw, []byte("pda-verify-unavailable")) {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "deployment returns 503 pda-verify-unavailable; impl has not yet adopted L-24 (handler SPKI 749f3fd4…91e3 not in trustAnchors). When impl ships L-24, this auto-flips to PASS."})
+		anchorPresent := liveCardHasL24Anchor(ctx, h.Client)
+		if anchorPresent {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: "deployment returns 503 pda-verify-unavailable BUT L-24 handler SPKI (749f3fd4…91e3, kid=soa-conformance-test-handler-v1.0) IS already in security.trustAnchors[1] on the live card. The remaining gap is the Runner's resolvePdaVerifyKey injection — PDA verification cannot run until the Runner is wired with a key resolver that maps the handler kid to its verify key. Impl-side fix: inject a resolvePdaVerifyKey at startup whose lookup includes the L-24 anchor's kid → public.pem mapping (test-vectors/handler-keypair/public.pem)."})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: "deployment returns 503 pda-verify-unavailable; impl has not yet adopted L-24 (handler SPKI 749f3fd4…91e3 not in trustAnchors). When impl ships L-24, this auto-flips to PASS."})
+		}
 		return out
 	}
 	if status != http.StatusCreated {
