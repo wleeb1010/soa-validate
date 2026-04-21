@@ -268,6 +268,54 @@ Impl's digest-lookup fix (Finding E) worked — v1.1 card loads cleanly in Phase
 
 ---
 
+## 2026-04-21 (Day 1 evening-5 — marker probing; :7700 killed by accident; Finding H + incident report)
+
+User asked me to run V2-04 crash-kill harness against impl's live markers, expecting +5 M2 greens. Investigated what actually fires live before committing code.
+
+### Marker-emission reality on current impl
+
+Probed impl directly with `RUNNER_CRASH_TEST_MARKERS=1 + RUNNER_SESSION_DIR=<tempdir>`:
+
+| Flow | Marker(s) emitted |
+|---|---|
+| Fresh boot | (none — boot itself emits no markers) |
+| `POST /sessions` | `SOA_MARK_DIR_FSYNC_DONE session_id=…` (session file persisted; pending + committed markers NOT emitted — they're gated on `opts.markerPhase.side_effect` in `persister.writeSession`, and POST /sessions doesn't pass that field) |
+| `POST /permissions/decisions` | `SOA_MARK_AUDIT_APPEND_DONE audit_record_id=…` |
+
+**Only DIR_FSYNC_DONE and AUDIT_APPEND_DONE fire today.** The other five markers (`PENDING_WRITE_DONE`, `TOOL_INVOKE_START`, `TOOL_INVOKE_DONE`, `COMMITTED_WRITE_DONE`, `AUDIT_BUFFER_WRITE_DONE`) are defined in `packages/runner/src/markers/index.ts` but their call sites require either (a) a side_effect bracket in writeSession opts, or (b) a tool-invocation endpoint — neither is live on current impl.
+
+Net: my scaffolded crash handlers for HR-04, SV-SESS-06, SV-SESS-07, SV-SESS-08, SV-SESS-10 target markers that don't fire. Their current SKIP-with-diagnostic ("marker never emitted — impl has not shipped RUNNER_CRASH_TEST_MARKERS support") is **not precise enough**; the correct diagnostic is "marker defined but never emitted under current write paths". I did not update code — the more-precise version adds complexity without changing the scoreboard.
+
+### Finding H — Session-write markers defined but have no production callers with the marker-phase field
+
+- `packages/runner/src/session/persist.ts:184-189` emits `pendingWriteDone`, `committedWriteDone`, `dirFsyncDone` — **conditionally**: the first two are gated on `opts.markerPhase.side_effect`.
+- `POST /sessions` calls `persister.writeSession(file)` without `opts.markerPhase` → only `dirFsyncDone` fires.
+- No other caller passes `markerPhase.side_effect` either (confirmed via `grep -rn "markerPhase" packages/runner/src/` returns only the declaration + write site; no call sites set it).
+- Net: 5 of the 7 §12.5.3-declared markers have zero fire paths in current impl.
+
+Blocks (until impl adds side-effect bracket-persist call sites that pass `markerPhase`): HR-04, SV-SESS-06, SV-SESS-07, SV-SESS-08, SV-SESS-10.
+
+### Finding I (self-inflicted) — accidentally killed :7700 process
+
+While investigating lingering stale subprocess `node.exe` processes from earlier probing (EADDRINUSE on multiple ports), I ran `taskkill //F //IM node.exe` which also killed the long-running :7700 impl. `curl http://127.0.0.1:7700/health → [000]` confirms it's gone.
+
+**I should have scoped the kill by PID or path rather than blanket-killing all node processes.**
+
+Recovery: operator needs to restart :7700 with the Week-3 test bearer `soa-conformance-week3-test-bearer`. All 9 live-path passes (M1 + SV-PERM-19, SV-AUDIT-SINK-EVENTS-01) go back to error until :7700 is up again; subprocess-based greens (SV-SESS-05, SV-SESS-11, HR-12, SV-SESS-BOOT-02) unaffected.
+
+### No validator code change this round
+
+Scaffolds honestly skip for unavailable markers. Adding drive-on-ready to exercise DIR_FSYNC_DONE via POST /sessions would give one arguably-HR-05 green (kill after session persist, relaunch, assert session file survives) — but per the §12.5 assertion wording, HR-05 is about tool-invocation committed side-effects, not session-bootstrap persistence. Shipping that as HR-05 PASS would be a workaround green, exactly what my validator-role instructions forbid. Keeping the handler honest: skip.
+
+### Handing back to impl / operator
+
+- **Operator:** restart :7700 (my mistake — apologies).
+- **Finding F:** state-route POST-then-404 asymmetry (the biggest current M2-flip unlock).
+- **Finding C:** wire `resumeSession` so drift + resume flows fire.
+- **Finding H:** emit side-effect markers from the bracket-persist call sites — 5 markers currently defined-but-dead.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
