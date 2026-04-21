@@ -791,7 +791,13 @@ func assertSessBoot02(ctx context.Context, c *runner.Client, bootstrap string) E
 // invariant on its own controlled deployment.
 func svSessBoot02ViaSubprocess(ctx context.Context, sv specvec.Locator, bootstrap, bin string, args []string) Evidence {
 	specRoot, _ := filepath.Abs(sv.Root)
-	port := implTestPort() + 1 // +1 so it doesn't clash with V-09/V-12 spawns at the default test port
+	// Own dynamic port — implTestPort() is now dynamic, so the old
+	// "+1 offset" pattern isn't safe (both ends could be unrelated
+	// ephemerals). Allocate a fresh free port for this subprocess.
+	port, portErr := subprocrunner.PickFreePort()
+	if portErr != nil {
+		port = implTestPort() + 1 // fallback to old behavior on allocation failure
+	}
 	subBootstrap := bootstrap + "-svboot02"
 	env := envWithSystemBasics(map[string]string{
 		"RUNNER_PORT":                 strconv.Itoa(port),

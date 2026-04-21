@@ -613,6 +613,41 @@ Platform check skips on Windows runner (correct behavior). Will run + likely pas
 
 ---
 
+## 2026-04-21 (Day 1 evening-12 — impl ships Finding C fix; 30 pass / 0 fail / 0 error)
+
+Impl shipped L-29 boot-scan + resumeSession wire-up. Validator-side changes needed: readjust SV-SESS-09 probe (readiness fires before scan completes) + fix dynamic-port collision with SV-SESS-BOOT-02.
+
+### Validator-side fixes this round
+
+- **SV-SESS-BOOT-02 port collision**: my dynamic-port change broke the old `implTestPort() + 1` pattern. Now uses its own `subprocrunner.PickFreePort()` for truly isolated allocation.
+- **SV-SESS-09 rework**: impl's boot-scan runs AFTER `/ready=200` (per `start-runner.ts:443-460`), so my readiness-triggered kill fired too early. Added a 3s settle delay in the readiness probe — gives scan time to complete + log outcomes.
+- **Broader observable ladder**: SV-SESS-09 now accepts (1) literal `CardVersionDrift` token in stdout/stderr, (2) /audit/records entry with `CardVersionDrift` detail, or (3) `failed-resume` stdout mention with test-setup ruling out `ToolPoolStale` (tools fixture identical across phases, so `failed-resume` ≡ drift here per `boot-scan.ts:130-136`).
+
+### Scoreboard (pin `0f031dc`, 32 IDs) — **30 pass / 0 fail / 2 skip / 0 error**
+
+**+2 M2 flips from impl Finding C fix:**
+- **SV-SESS-02** — corrupt-session-file plant → impl's boot-scan reads, detects `SessionFormatIncompatible`, exits 1. Spec-precise pass.
+- **SV-SESS-09** — v1.1 card vs v1.0 session → boot-scan calls `resumeSession` → drift detected → `failed-resume` outcome; Runner quarantines drifted session and continues serving others per §12.5 step 2.
+
+**M2 live-green: 15 of 16** (SV-SESS-01..11 except SV-SESS-06, SV-PERM-19, SV-SESS-STATE-01, SV-AUDIT-SINK-EVENTS-01, HR-04, HR-05).
+
+### Remaining 2 skips — both expected
+
+- **HR-02** — spec-authored M3 deferral. No action possible until §13 Token Budget ships.
+- **SV-SESS-06** — POSIX-only platform guard. Correct skip on current Windows runner. Linux/macOS CI will run + likely pass, which would bring total to 31 — matching the M2 exit tally target (15 M1 + 16 M2 = 31) exactly.
+
+### Net state
+
+- **30 pass / 0 fail / 2 skip / 0 error** on Windows runner.
+- **M1 live-green: 13 of 13.**
+- **M2 live-green: 15 of 16** (SV-SESS-06 skip is platform-appropriate).
+- Zero open findings — all prior A–J + H resolved at spec/impl.
+- Validator-side work complete for M2 scope. No pending follow-ups.
+
+**M2 exit gate achieved on the Windows runner.**
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
