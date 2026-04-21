@@ -16,6 +16,17 @@ type Config struct {
 	Client  *runner.Client
 	Spec    specvec.Locator
 	Live    bool
+	// MilestonesInScope: which implementation_milestone values to execute.
+	// Tests whose ImplMilestone is not in this set skip with the spec's
+	// deferral reason. Empty = default to {"", "M1", "M2"} (the current
+	// active scope — M3+ features stay deferred).
+	MilestonesInScope map[string]struct{}
+}
+
+// DefaultMilestonesInScope is the scope applied when Config.MilestonesInScope
+// is nil. M1 + M2 are active; M3+ deferred.
+func DefaultMilestonesInScope() map[string]struct{} {
+	return map[string]struct{}{"": {}, "M1": {}, "M2": {}}
 }
 
 func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
@@ -27,6 +38,10 @@ func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
 	}
 	ordered := orderByPhase(ids, mm)
 	hctx := HandlerCtx{Client: cfg.Client, Spec: cfg.Spec, Live: cfg.Live}
+	scope := cfg.MilestonesInScope
+	if scope == nil {
+		scope = DefaultMilestonesInScope()
+	}
 
 	results := make([]Result, 0, len(ordered))
 	for _, id := range ordered {
@@ -36,10 +51,10 @@ func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
 				Message: "test id not found in must-map"})
 			continue
 		}
-		// Spec-authored deferral: tests with implementation_milestone set
-		// to anything other than M1 skip automatically with the spec's
-		// declared reason. Catalog carries the source of truth here.
-		if def.ImplMilestone != "" && def.ImplMilestone != "M1" {
+		// Spec-authored deferral: tests with implementation_milestone
+		// outside the current scope skip with the spec's declared reason.
+		// Default scope is {M1, M2}; M3+ features stay deferred.
+		if _, inScope := scope[def.ImplMilestone]; !inScope {
 			results = append(results, Result{
 				ID: id, Name: def.Name, Section: def.Section,
 				Profile: def.Profile, Severity: def.Severity,

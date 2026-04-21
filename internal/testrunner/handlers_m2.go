@@ -488,7 +488,7 @@ func m2BaseEnv(specRoot string, port int, bearer string) map[string]string {
 // and DangerFullAccess so subsequent /permissions/resolve + /permissions/decisions
 // calls have the scope they need. Returns (session_id, session_bearer, status, err).
 func m2Bootstrap(ctx context.Context, c *runner.Client, bootstrapBearer string) (string, string, int, error) {
-	body := `{"activeMode":"DangerFullAccess","request_decide_scope":true}`
+	body := `{"requested_activeMode":"DangerFullAccess","user_sub":"m2-validator","request_decide_scope":true}`
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
 	req.Header.Set("Content-Type", "application/json")

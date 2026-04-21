@@ -38,6 +38,62 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (M2 Week 1 Day 1 afternoon — first live M2 run; two findings surfaced)
+
+Ran `/tmp/soa-validate --profile=core` against live impl on `127.0.0.1:7700` (pin `507eeb1`). Two findings, two bugs fixed validator-side, two M2 tests flipped green.
+
+### Validator-side fixes shipped before re-run
+
+- **Milestone-scope gate (`internal/testrunner/runner.go`)** — the runner previously short-circuited any test with `implementation_milestone != "M1"` to a "deferred to M2 per must-map" skip, which meant M2 handlers never ran even when wired. Added `Config.MilestonesInScope` (defaults to `{"", "M1", "M2"}` via `DefaultMilestonesInScope()`). M3+ tests stay deferred. Without this, all five Week 1 targets were auto-skipping before my handlers got control.
+- **M2 bootstrap body** — `m2Bootstrap` in `handlers_m2.go` was sending `{"activeMode":...}`. Impl rejected with `400 {"error":"malformed-request","detail":"requested_activeMode missing or invalid"}`. Fix: switched to `{"requested_activeMode":"DangerFullAccess","user_sub":"m2-validator","request_decide_scope":true}` matching the M1 `postSessionWithScope` pattern + §12.6 schema.
+
+### Scoreboard (live impl `127.0.0.1:7700`, `SOA_IMPL_BIN` set)
+
+| Test | Status | Note |
+|---|---|---|
+| SV-CARD-01 | pass | vector + live |
+| SV-SIGN-01 | pass | vector + live |
+| HR-01 | pass | vector |
+| HR-12 | pass | subprocess tampered JWS fail-closed |
+| SV-SESS-BOOT-02 | pass | subprocess ReadOnly-card-403 |
+| **SV-SESS-05** | **pass (new)** | positive + negative arms via tool-registry-m2 fixtures; impl enforces §12.2 `ToolPoolStale idempotency-retention-insufficient` |
+| **SV-SESS-11** | **pass (new)** | positive + negative + combined-fixture arms |
+| HR-02 | skip | M3-deferred (Token Budget) |
+| SV-SESS-06..10 | skip | `RUNNER_CRASH_TEST_MARKERS` not yet shipped by impl |
+| SV-PERM-19 | skip | **Finding A below** |
+| SV-AUDIT-SINK-EVENTS-01 | skip | **Finding A below** |
+| SV-SESS-STATE-01 | skip | **Finding B below** |
+| HR-14 / SV-AUDIT-TAIL-01 / SV-AUDIT-RECORDS-01/02 / SV-SESS-BOOT-01 / SV-PERM-01 / SV-PERM-20 / SV-PERM-21 / SV-BOOT-01 / SV-PERM-22 | fail/error/skip | **Finding B below** — all trace to live :7700 /ready=503 crl-stale |
+
+**Clean M2 result:** 2 of 5 Week 1 targets PASS live. Other 3 blocked on impl-side gaps surfaced below.
+
+### Finding A — `§12.5.4 GET /audit/sink-events` endpoint not wired
+
+- Probe: `curl http://127.0.0.1:7700/audit/sink-events` → 404 `{"message":"Route GET:/audit/sink-events not found","error":"Not Found","statusCode":404}`.
+- Verified on a fresh subprocess-spawned impl (same code, fresh CRL): startup route list enumerates 10 endpoints; `/audit/sink-events` is **not** among them. Same 404 with authenticated session bearer.
+- Spec L-28 §12.5.4 requires this endpoint for M2 conformance. Impl's M2-T3 delivery shipped `/sessions/<id>/state` (good) but not `/audit/sink-events`.
+- Blocks: SV-PERM-19 (all three arms), SV-AUDIT-SINK-EVENTS-01 (all three arms).
+- **This is a deliverable gap**, not a validator bug. Reporting per validator-role instructions.
+- Auto-flip: once impl wires the §12.5.4 route + the `SOA_RUNNER_AUDIT_SINK_FAILURE_MODE` state machine, my handlers already cover the three-arm sweep + the exactly-one-fresh-boot-event assertion per L-28 F-13.
+
+### Finding B — live :7700 impl is in `/ready=503 reason=crl-stale`
+
+- Probe: `GET /ready` → `503 {"status":"not-ready","reason":"crl-stale"}`.
+- Cascade: every test that mints a session against :7700 errors with `status=503`. This is the root cause of M1 regressions in today's run (SV-BOOT-01, SV-PERM-01 FAIL; SV-SESS-BOOT-01, SV-PERM-20, SV-PERM-21 ERROR; SV-SESS-STATE-01 SKIP).
+- **Subprocess-spawned impls (fresh boot) come up `/ready=200`** and accept /sessions cleanly — see SV-SESS-05/11/HR-12/SV-SESS-BOOT-02 passes.
+- Interpretation: the long-running :7700 instance's CRL fetcher has aged past the freshness window. Runtime-state condition, not a code bug. Restart of :7700 (or CRL refresh in place) should clear it.
+- Once :7700 is restarted against fresh CRL fixtures, M1 regressions clear and SV-SESS-STATE-01 becomes testable (my V-14 observer + byte-identity predicate is wired and ready).
+
+### Numbers at snapshot time
+
+- 7 pass / 2 fail / 3 error / 14 skip.
+- M1-equivalent (ignoring :7700 crl-stale cascade): **15 pass / 1 skip / 0 fail** (identical to M1 close).
+- M2 delta: **+2 pass (SV-SESS-05, SV-SESS-11)**, +3 skip blocked on impl §12.5.4 endpoint + :7700 health.
+
+**Handing back to impl:** (1) ship `/audit/sink-events` route + `SOA_RUNNER_AUDIT_SINK_FAILURE_MODE` wiring; (2) restart :7700 with fresh CRL. Validator ready to flip SV-PERM-19, SV-AUDIT-SINK-EVENTS-01, SV-SESS-STATE-01 on next run — no validator-side code change needed.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
