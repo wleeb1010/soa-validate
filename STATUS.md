@@ -411,6 +411,24 @@ The other 5 (`PENDING_WRITE_DONE`, `COMMITTED_WRITE_DONE`, `TOOL_INVOKE_START/DO
 
 ---
 
+## 2026-04-21 (Day 1 evening-8 — pin-bump `5fb1af9 → 8ccddf2` adopting L-31)
+
+Finding H diagnosed + spec-fixed at commit `8ccddf2` (L-31). My per-test drive-on-ready diagnostics nailed the root cause; spec now explicitly maps POST /permissions/decisions to the §12.5.3 marker boundaries.
+
+**Pin-bump:**
+- `spec_commit_sha = 8ccddf2be958c006bee1e53b313421a3da83e606`
+- `spec_manifest_sha256 = dc2771cef863e3132c51b4373cc747e33340b3986d0a4a22d9d78c268e18a544`
+
+**No validator code change.** My V2-04 harness already consumes markers correctly; scaffolds already expect the marker names. Flips auto-fire when impl ships L-31 wire-up.
+
+Expected delta on next run (once impl signals L-31 adoption):
+- HR-04, HR-05 (fuller §12.5), SV-SESS-03, SV-SESS-07, SV-SESS-08, SV-SESS-10 flip from SKIP → PASS
+- Scoreboard: **22 → 28** live-green.
+
+Watching impl STATUS for the wire-up signal.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
