@@ -4,6 +4,24 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (post-M1 — pin at 5849483; SV-PERM-21 handler ready, awaiting impl L-24 adoption)
+
+**Done:**
+- **Pin-bumped `1971e87 → 5849483`** adopting **L-24 pinned handler keypair + pre-signed PDA fixture**. `spec_commit_sha = 5849483736674ba86b20339beb548749d86c78e4`, `spec_manifest_sha256 = d21345726b04d85fe2b4b9079d251468fab3b3213c5fa8d8247282fc1ecf8cd1`. Single-reason: this is the spec-side fix I flagged as the unblocker for SV-PERM-21 across all of M1.
+- **SV-PERM-21 handler implemented end-to-end.** New live path:
+  1. POST /sessions with `requested_activeMode=WorkspaceWrite` + `request_decide_scope:true`
+  2. Read `test-vectors/permission-prompt-signed/pda.jws` as a string
+  3. POST /permissions/decisions `{tool:"fs__write_file", session_id, args_digest:"sha256:00…00", pda:<pda.jws>}`
+  4. Assert: 201, `decision=Prompt`, `handler_accepted=true`, `audit_this_hash` is hex64, `audit_record_id` ∈ `^aud_…`
+  5. GET /audit/records → newest record's `signer_key_id == "soa-conformance-test-handler-v1.0"`
+- **Auto-flip diagnostic:** when impl returns 503 pda-verify-unavailable (L-24 not yet adopted on the impl side), handler reports SKIP with precise diagnostic (`handler SPKI 749f3fd4…91e3 not in trustAnchors. When impl ships L-24, this auto-flips to PASS.`).
+
+**Today's run state:** SV-PERM-21 still SKIP because current impl doesn't yet have the L-24 handler SPKI in `trustAnchors` (still 503 pda-verify-unavailable). **Code is ready; flips PASS the moment impl ships L-24 adoption.**
+
+**Scoreboard unchanged: 14 pass / 2 skip / 0 fail.** Expected post-impl-L-24: **15 pass / 1 skip / 0 fail** (only HR-02 M3-deferred remains, by design).
+
+---
+
 ## 2026-04-20 (M1 CLOSE — 14 pass / 2 skip / 0 fail across the full conformance suite)
 
 **Milestone:** Impl shipped Week 5b (commit `a3ca409` + STATUS `7c305e7`) — `create-soa-agent` scaffold + Linux/macOS/Windows ≤120 s cold-cache CI gate. Their punch list is fully cleared. **M1 complete on both sides.**

@@ -1781,12 +1781,119 @@ func extractReason(raw []byte) string {
 	return b.Error
 }
 
+// SV-PERM-21 — PDA happy path. Spec L-24 pinned a handler keypair
+// (test-vectors/handler-keypair/) plus a pre-signed PDA-JWS fixture
+// (test-vectors/permission-prompt-signed/pda.jws) over a Prompt-resolving
+// canonical decision for fs__write_file under WorkspaceWrite/Prompt.
+//
+// Validator path:
+//   1. Mint a session at WorkspaceWrite (or DangerFullAccess) with
+//      request_decide_scope:true.
+//   2. POST /permissions/decisions {tool=fs__write_file, session_id,
+//      args_digest, pda=<pda.jws>}.
+//   3. Assert: 201, decision=Prompt, handler_accepted=true, audit_this_hash
+//      is hex64, audit_record_id present.
+//   4. GET /audit/records and assert newest record's signer_key_id ==
+//      "soa-conformance-test-handler-v1.0".
+//
+// If the deployment has no PDA verify wired (current state pre-L-24 impl
+// adoption), the endpoint returns 503 pda-verify-unavailable per L-23 →
+// honest skip with diagnostic.
 func handleSVPERM21(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{
-		{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §10.3.2+§6.1.1"},
-		{Path: PathLive, Status: StatusSkip,
-			Message: "requires a valid PDA-JWS signed by a handler key chained to the Runners security.trustAnchors. Validator has no PDA-signing fixture yet; needs either (a) spec to ship a signed PDA vector whose trust anchor the Runner can be configured to accept, or (b) validator to gain a signing identity the Runner is configured to trust. Honest skip until the fixture/design decision is made."},
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only test per spec §10.3.2+§6.1.1"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
 	}
+	bootstrap := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrap == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
+		return out
+	}
+	// Read the L-24 pre-signed PDA fixture.
+	pdaBytes, err := h.Spec.Read(specvec.SignedPDAJWS)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	pdaStr := strings.TrimSpace(string(pdaBytes))
+	// Mint a WW session with decide-scope.
+	sess, st, err := postSessionWithScope(ctx, h.Client, bootstrap, permresolve.CapWorkspaceWrite, true)
+	if err != nil || st != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("provision WW session: status=%d err=%v", st, err)})
+		return out
+	}
+	req := permissionDecisionRequest{
+		Tool:       "fs__write_file",
+		SessionID:  sess.SessionID,
+		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		PDA:        &pdaStr,
+	}
+	dec, raw, status, err := postDecision(ctx, h.Client, sess.SessionBearer, req)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: "POST /permissions/decisions: " + err.Error()})
+		return out
+	}
+	// Honest skip: deployment lacks PDA verify wiring.
+	if status == http.StatusServiceUnavailable && bytes.Contains(raw, []byte("pda-verify-unavailable")) {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "deployment returns 503 pda-verify-unavailable; impl has not yet adopted L-24 (handler SPKI 749f3fd4…91e3 not in trustAnchors). When impl ships L-24, this auto-flips to PASS."})
+		return out
+	}
+	if status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("expected 201, got %d; body=%s", status, string(raw))})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path(specvec.PermissionDecisionResponseSchema), raw); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "decision response schema: " + err.Error()})
+		return out
+	}
+	if dec.Decision != "Prompt" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("decision=%s, want Prompt (resolver should output Prompt for fs__write_file under WW)", dec.Decision)})
+		return out
+	}
+	if !dec.HandlerAccepted {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("handler_accepted=false reason=%s; want true with valid signed PDA", dec.Reason)})
+		return out
+	}
+	if !hex64Re.MatchString(dec.AuditThisHash) {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "audit_this_hash not 64-char hex: " + dec.AuditThisHash})
+		return out
+	}
+	if dec.AuditRecordID == "" || !strings.HasPrefix(dec.AuditRecordID, "aud_") {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "audit_record_id missing or wrong shape: " + dec.AuditRecordID})
+		return out
+	}
+	// Verify newest /audit/records entry carries the L-24 handler kid.
+	all, _, _, err := collectAllRecords(ctx, h.Client, sess.SessionBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/records: " + err.Error()})
+		return out
+	}
+	if len(all) == 0 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "audit chain empty after PDA-signed decision"})
+		return out
+	}
+	newest := all[len(all)-1]
+	if newest.SignerKeyID != specvec.HandlerKeyKID {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("newest record signer_key_id=%q, want %q (L-24 handler kid)", newest.SignerKeyID, specvec.HandlerKeyKID)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("PDA happy-path: 201, decision=Prompt, handler_accepted=true, audit_record_id=%s, audit_this_hash=%s, newest /audit/records signer_key_id=%s (L-24 fixture)",
+			dec.AuditRecordID, summarizeHash(dec.AuditThisHash), newest.SignerKeyID)})
+	return out
 }
 
 func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {

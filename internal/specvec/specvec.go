@@ -60,6 +60,11 @@ const (
 
 	InitialTrustMismatchedKid = "test-vectors/initial-trust/mismatched-publisher-kid.json"
 
+	HandlerKeyPairSPKI         = "test-vectors/handler-keypair/spki_sha256.txt"
+	SignedPDAJWS               = "test-vectors/permission-prompt-signed/pda.jws"
+	SignedCanonicalDecision    = "test-vectors/permission-prompt-signed/canonical-decision.json"
+	HandlerKeyKID              = "soa-conformance-test-handler-v1.0"
+
 	ToolRegistryJSON = "test-vectors/tool-registry/tools.json"
 
 	AuditTailResponseSchema          = "schemas/audit-tail-response.schema.json"
