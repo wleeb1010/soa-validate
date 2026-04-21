@@ -4,6 +4,46 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 later — pin at 9ae1825; awaiting impl restart with RUNNER_DEMO_SESSION)
+
+**Done:**
+- **Pin-bumped `8c10ce9 → 9ae1825`**. `spec_commit_sha = 9ae1825bf2d8f97778b193ec1607f2f26a8b336c`, `spec_manifest_sha256 = 0e84c2c4136da1478a5d66fe585fd0ab6d7194b79ec74c14b0d1d9821145fd3f`. Single-reason bump: **L-22 §10.3.2 403 reason enum fix** — rename `missing-scope → insufficient-scope` + closed-enum reason set `{insufficient-scope, session-bearer-mismatch, pda-decision-mismatch, pda-malformed}`. Direct root-cause fix for the ConfigPrecedenceViolation-vs-missing-scope disagreement I surfaced this morning — my finding was correct; the spec typo originated in L-19 and L-22 pins the authoritative set.
+
+**Validator state — unchanged from previous push:**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | pass + pass | pass (24/24) |
+| HR-01 | pass | skip |
+| HR-02 | — | M3-deferred |
+| HR-12, HR-14 | skip | skip |
+| SV-AUDIT-TAIL-01 | — | pass (fresh-Runner GENESIS) |
+| SV-SESS-BOOT-01 | — | pass |
+| SV-SESS-BOOT-02 | — | skip (needs ReadOnly-card Runner) |
+
+**7 pass / 4 skip / 0 fail.**
+
+**Pending impl next restart signal:**
+- Impl restart with both env vars:
+  - `SOA_RUNNER_BOOTSTRAP_BEARER=soa-conformance-week3-test-bearer` (same as before)
+  - `RUNNER_DEMO_SESSION=ses_demoWeek3Conformance01:soa-conformance-week3-decide-bearer` (NEW — pre-enrolled session with `canDecide=true` baked in)
+  - Impl also needs the one-line rename `missing-scope → insufficient-scope` adopted alongside L-22
+
+**Queued for when impl restart signals ready (runs in one pass):**
+- **V-07 audit-record driver** — loop N=150 `POST /permissions/decisions` for AutoAllow tools using the pre-enrolled demo session's bearer; each call writes an audit row.
+- **V-05 upgrade** — after V-07, `GET /audit/tail` → `this_hash` is 64-char hex (no longer GENESIS), `record_count == 150`. Extends the existing SV-AUDIT-TAIL-01 to assert post-driver state.
+- **V-08 SV-PERM-20/21/22**:
+  - SV-PERM-20 positive: demo-session bearer drives `/permissions/decisions` successfully; schema-valid body; `audit_this_hash` equals new tail hash; decision mirrors `/permissions/resolve` output (forgery resistance).
+  - SV-PERM-20 auth negative: a separately-created session without `request_decide_scope` → 403 `reason=insufficient-scope` (asserting the L-22 corrected enum value).
+  - SV-PERM-21 PDA happy path + SV-PERM-22 PDA negative paths — require constructing a valid PDA-JWS validator-side (design TBD; may need an additional subprocess/signing fixture).
+
+**Still blocked on T-01 `/audit/records`** — V-06 (SV-AUDIT-RECORDS-01/02) + V-10 (HR-14 chain-tamper). Use V-07 to accumulate records first; V-06/V-10 fire the moment T-01 ships.
+
+---
+
 ## 2026-04-20 (Week 3 day 3 late — V-04 + V-05 green; parallel work while T-02 in flight)
 
 **Done while impl works on T-02:**
