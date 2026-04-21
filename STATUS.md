@@ -316,6 +316,49 @@ Scaffolds honestly skip for unavailable markers. Adding drive-on-ready to exerci
 
 ---
 
+## 2026-04-21 (Day 1 evening-6 — :7700 restored with Finding F fix; +2 M2 greens)
+
+Operator restarted :7700 (PID 39712) carrying the Finding F fix for the POST-then-/state visibility asymmetry. Re-ran the full suite.
+
+### Scoreboard (pin `5fb1af9`, 32 IDs)
+
+**19 pass / 0 fail / 13 skip / 0 error — exit code 0.**
+
+**M2 live-green: 6** (was 4):
+- SV-SESS-05 — §12.2 tool-pool classification
+- SV-SESS-11 — §12.2 + combined fixture
+- SV-PERM-19 — §10.5.1 audit-sink state machine (3-arm)
+- SV-AUDIT-SINK-EVENTS-01 — §12.5.4 endpoint + schema
+- **SV-SESS-01 (new)** — §12.5.1 /state response shape validates
+- **SV-SESS-STATE-01 (new)** — §12.5.1 /state + L-28 F-01 byte-identity predicate
+
+**M1 live-green: 13** (all back; unchanged from 17-pass run):
+SV-CARD-01, SV-SIGN-01, SV-PERM-01, SV-BOOT-01, SV-SESS-BOOT-01, SV-SESS-BOOT-02, SV-AUDIT-TAIL-01, SV-AUDIT-RECORDS-01, SV-PERM-20, SV-PERM-21, SV-PERM-22, HR-01, HR-12.
+
+**Still SKIP (8 M2 IDs):**
+- SV-SESS-02, SV-SESS-04, SV-SESS-06..10 + HR-04, HR-05 — all gated on Finding H (5 markers defined-but-dead) + Finding C (resume trigger wiring).
+- SV-SESS-03 — skip path now clean through /state, but still waits for M2-T2 side-effect phase writes to be observable.
+
+**Env-controlled SKIP (1):**
+- SV-AUDIT-RECORDS-02 — chain-empty; drive with `SOA_DRIVE_AUDIT_RECORDS=N`.
+
+**M3-deferred (1):** HR-02.
+
+### Finding F — RESOLVED
+
+Operator-side fix cleanly flipped SV-SESS-01 + SV-SESS-STATE-01. The POST-creates-session-but-GET-/state-says-unknown asymmetry is gone.
+
+### Remaining impl work for more M2 greens
+
+- **Finding C** — wire `resumeSession` so drift + crash-recovery flows fire.
+- **Finding H** — emit PENDING/COMMITTED/TOOL_INVOKE markers from bracket-persist call sites (currently gated on `markerPhase.side_effect` which no caller sets).
+
+Either unlocks the remaining 8 M2 IDs for validator-side exercise. Expected ceiling when both land: 14 M2 greens + 13 M1 greens + 1 SV-AUDIT-RECORDS-02 (with driver) = 28 live-green, against 31-target (31 = M2 exit tally 16 + M1 exit 15).
+
+**15-target for Week 1 exit was:** SV-SESS-01, SV-SESS-02, SV-SESS-05, SV-SESS-11, SV-SESS-STATE-01. Validator scoreboard: **4 of 5** — SV-SESS-02 still gated on Finding C + H (boot-scan resume trigger + session-file-writes-emit-markers).
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
