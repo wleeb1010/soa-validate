@@ -219,6 +219,55 @@ Discovered after rewiring SV-SESS-09 to use the L-30 v1.1 fixture. Phase B retur
 
 ---
 
+## 2026-04-21 (Day 1 evening-4 — post-impl-restart + digest-fix; 17 pass / 0 fail / 0 error; Finding F surfaced)
+
+**User signaled ready.** Re-ran the conformance suite against a freshly-booted :7700 with impl's digest-lookup fix + CRL-refresh wiring live.
+
+### Scoreboard (pin `5fb1af9`, 32 IDs)
+
+**17 pass / 0 fail / 15 skip / 0 error — exit code 0.**
+
+| Category | Count | IDs |
+|---|---|---|
+| M1 back-green | 6 | SV-BOOT-01, SV-PERM-01, SV-SESS-BOOT-01, SV-PERM-20, SV-PERM-21, SV-PERM-22 (all cleared by :7700 restart — Finding B resolved) |
+| M1 still green | 8 | SV-CARD-01, SV-SIGN-01, HR-01, HR-12, SV-SESS-BOOT-02, SV-AUDIT-TAIL-01, SV-AUDIT-RECORDS-01, SV-SESS-BOOT-02 |
+| **M2 live-green** | **4** | **SV-SESS-05, SV-SESS-11, SV-PERM-19, SV-AUDIT-SINK-EVENTS-01** (unchanged — flip pending SV-SESS-01/02/STATE-01 pivots on Finding F below) |
+| M3-deferred | 1 | HR-02 |
+| Chain-empty (env-controlled) | 1 | SV-AUDIT-RECORDS-02 — drive records via `SOA_DRIVE_AUDIT_RECORDS=N` to assert |
+| Marker-dependent SKIP | 6 | HR-04, HR-05, SV-SESS-03, SV-SESS-04, SV-SESS-06, SV-SESS-07, SV-SESS-08, SV-SESS-10 (pending M2-T7 `RUNNER_CRASH_TEST_MARKERS`) |
+| **New Finding F** | 3 | **SV-SESS-01, SV-SESS-02, SV-SESS-STATE-01** — all skip because of the /state-endpoint bug below |
+| SV-SESS-09 | 1 | skip — Finding E resolved (no digest-mismatch), but impl didn't fire drift detection; see below |
+
+### Finding F — POST /sessions creates a session that /state can't see
+
+**Reproducible on both :7700 and a fresh subprocess spawn:**
+
+```
+POST /sessions → 201 {session_id: "ses_X", session_bearer: "B"}
+GET  /permissions/resolve?tool=fs__read_file&session_id=ses_X  (auth: Bearer B) → 200 {decision: "AutoAllow"}
+GET  /sessions/ses_X/state                                     (auth: Bearer B) → 404 {error: "unknown-session"}
+```
+
+Same session, same bearer, same `sessionStore` (start-runner.ts passes a single `InMemorySessionStore` instance to both routes). `permissions/resolve-route.ts` sees `sessionStore.exists(sessionId)` as TRUE; `session/state-route.ts` sees it as FALSE for the same session_id on the same process instance.
+
+**Root-cause candidate (impl-side, needs investigation):** L-29's `tryLazyHydrate` path in `state-route.ts` may be short-circuiting or the `opts.sessionStore.exists()` plumbing for the `sessionState` route is somehow connected to a different store instance than `sessionsBootstrap`. From a reader's standpoint both `opts.sessionStore` values come from the same variable in `start-runner.ts:sessionStore = new InMemorySessionStore()`, so the bug is subtle.
+
+**Blocks:** SV-SESS-01 (/state schema check), SV-SESS-STATE-01 (byte-identity + schema), SV-SESS-03 (bracket-persist via /state polling). All skip today with `GET /sessions/<id>/state → 404; impl has not shipped §12.5.1 yet` — which is the right diagnostic *as observed* but the deeper cause is this registration/visibility asymmetry.
+
+### Finding C (partial update) — SV-SESS-09 no longer digest-rejected but drift still silent
+
+Impl's digest-lookup fix (Finding E) worked — v1.1 card loads cleanly in Phase B. But Phase B booted to readiness without observing `CardVersionDrift` on the Phase-A session's directory. Per stderr: no `resume` mention at all. This confirms **Finding C is still open**: resume trigger (§12.5 boot-scan or lazy-hydrate for resume) not yet wired; drift detection fires only along the resume path.
+
+### Net state
+
+- **14 M2 IDs wired, 4 live-green, 0 fails, 0 errors.**
+- 5 findings open (A expected-not-a-bug, B resolved, C open, D superseded by E, E resolved impl-side, F new).
+- Jump from 9 → 17 pass in one run. M1 fully back-green. M2 stays at 4 greens awaiting the /state-endpoint registration fix (Finding F) + resume trigger wiring (Finding C) + crash markers (Week 3 scope, M2-T7).
+
+**Handing back to impl:** (1) Finding F — the POST-creates-session-but-GET /state-says-unknown bug in `state-route.ts`; (2) Finding C — wire `resumeSession` to boot-scan + drift detection actually fire; (3) Finding G (pending, M2-T7) — ship `RUNNER_CRASH_TEST_MARKERS=1` stderr emission per §12.5.3.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
