@@ -115,6 +115,27 @@ var Handlers = map[string]Handler{
 	"SV-STR-15":     handleSVSTR15,
 	"SV-STR-16":     handleSVSTR16,
 	"SV-STR-OBS-01": handleSVSTROBS01,
+
+	// M3 Week 2 early-flip — impl T-3 shipped /budget/projection + /tools/registered
+	// on Day 1 (Week 1). Observability tests go live today; rule-level
+	// SV-BUD-01..07 + SV-REG-01..05 skip pending T-4/T-5.
+	"SV-BUD-01":      handleSVBUD01,
+	"SV-BUD-02":      handleSVBUD02,
+	"SV-BUD-03":      handleSVBUD03,
+	"SV-BUD-04":      handleSVBUD04,
+	"SV-BUD-05":      handleSVBUD05,
+	"SV-BUD-06":      handleSVBUD06,
+	"SV-BUD-07":      handleSVBUD07,
+	"SV-BUD-PROJ-01": handleSVBUDPROJ01,
+	"SV-BUD-PROJ-02": handleSVBUDPROJ02,
+
+	"SV-REG-01":     handleSVREG01,
+	"SV-REG-02":     handleSVREG02,
+	"SV-REG-03":     handleSVREG03,
+	"SV-REG-04":     handleSVREG04,
+	"SV-REG-05":     handleSVREG05,
+	"SV-REG-OBS-01": handleSVREGOBS01,
+	"SV-REG-OBS-02": handleSVREGOBS02,
 }
 
 func stub(reason string) Handler {

@@ -719,6 +719,63 @@ Measured the current M2 suite (32 test IDs, Windows runner + subprocess tests) a
 
 ---
 
+## 2026-04-22 (M3 Week 1 Day 1 — impl T-3 shipped early; V-6 + V-7 pre-wired)
+
+Impl shipped T-3 (/budget/projection + /tools/registered) + T-0 (Memory MCP mock on :8001) ahead of schedule on Week 1 Day 1. V-6 + V-7 handlers pre-wired to claim the early flips.
+
+### V-6 + V-7 early-flip: 16 handlers wired
+
+**`internal/testrunner/handlers_m3_wk2.go`:**
+- `SV-BUD-01..07` — scaffold SKIP-pending T-4 (real p95-over-W accounting).
+- **`SV-BUD-PROJ-01`** — live probe on `GET /budget/projection/<session_id>` with schema validation (§13.5).
+- **`SV-BUD-PROJ-02`** — byte-identity predicate excl `generated_at` (§13.5 not-a-side-effect).
+- `SV-REG-01..05` — scaffold SKIP-pending T-5 (mcp-dynamic registration).
+- **`SV-REG-OBS-01`** — live probe on `GET /tools/registered` with schema validation (§11.4).
+- **`SV-REG-OBS-02`** — byte-identity predicate (§11.4 not-a-side-effect).
+
+### Scoreboard (pin `5e97277`, 72 test IDs) — **31 pass / 0 fail / 41 skip / 0 error**
+
+- Test-ID count jumped 56 → 72 (+16 new M3 Week-2 scaffolds registered).
+- All 16 new handlers currently SKIP.
+- **Note**: `GET /budget/projection/<sid>` + `GET /tools/registered` both return `404` on the running `:7700` impl. Impl code shipped T-3 in commit `8b5d650` but **the running `:7700` process has not yet been restarted with the new binary** — the route registration is only active for processes started post-restart.
+- Handler SKIP evidence is precise: *"GET /budget/projection/<sid> → 404; impl has not shipped §13.5 yet (blocks on impl T-3)"*. Flips PASS immediately on `:7700` restart.
+
+### Test-ID tally
+
+| Category | Count | State |
+|---|---|---|
+| M1 live-green | 14 | hold (13 M1 + HR-02 now M3-tagged) |
+| M2 live-green | 15 | hold |
+| HR-12 / HR-14 / SV-SESS-BOOT-02 | 3 | hold (subprocess-based, unaffected) |
+| M3 handlers registered | 40 | (24 Week-1 + 16 Week-2 early-flip) |
+| M3 live-green today | 0 | all pending impl `:7700` restart |
+| Pre-budgeted skips observed | 2 | SV-STR-04, SV-MEM-08 |
+| POSIX-only skip | 1 | SV-SESS-06 (Windows) |
+
+### Updated machine-readable block
+
+```
+<!-- machine-readable -->
+{
+  "week": 1,
+  "v_tasks_landed": ["V-1","V-2","V-3","V-4","V-5","V-6","V-7"],
+  "scoreboard": {"pass": 31, "skip": 41, "fail": 0, "error": 0},
+  "pre_budgeted_skip_count": 2,
+  "real_slip_count": 0,
+  "spec_pin": "5e97277",
+  "m3_handlers_wired": 40,
+  "m3_live_green": 0,
+  "m3_target_live_greens": 120,
+  "m3_skip_budget": 19,
+  "awaiting": "impl :7700 restart with T-3 build; then SV-BUD-PROJ-01/02 + SV-REG-OBS-01/02 auto-flip"
+}
+<!-- /machine-readable -->
+```
+
+**Handoff for impl:** restart `:7700` with the new build. Expected delta on next run: `+4 M3 greens` (SV-BUD-PROJ-01/02 + SV-REG-OBS-01/02). Then waiting on T-1 (/memory/state), T-2 (/events/recent), T-4 (budget accounting), T-5 (dynamic registry) for the rest of the M3 handlers.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
