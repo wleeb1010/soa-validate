@@ -1,0 +1,122 @@
+name: live-e2e
+# End-to-end M1 exit-gate run against a live impl. Currently runs ON DEMAND
+# (workflow_dispatch only) — flips to push/PR triggers when impl ships its
+# Week 5b CI matrix and we want lockstep platform coverage on every PR.
+#
+# This workflow:
+#   1. Checks out validator (this repo) + spec repo + impl repo at pinned commits.
+#   2. Builds impl (pnpm i + build).
+#   3. Starts impl with the conformance bootstrap bearer + DFA card fixture.
+#   4. Runs `soa-validate` (V-13 exit-gate command).
+#   5. Uploads release-gate.json + JUnit XML as artifacts.
+#
+# Platform coverage matches Week 5b's intent: ubuntu/macos/windows-latest +
+# Node 22 + Go 1.22.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec-ref:
+        description: 'Spec repo ref (branch/sha) to pin against'
+        required: false
+        default: 'main'
+      impl-ref:
+        description: 'Impl repo ref to test against'
+        required: false
+        default: 'main'
+
+jobs:
+  exit-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out validator
+        uses: actions/checkout@v4
+        with:
+          path: validator
+
+      - name: Check out spec
+        uses: actions/checkout@v4
+        with:
+          repository: wleeb1010/soa-harness-specification
+          ref: ${{ github.event.inputs.spec-ref }}
+          path: spec
+
+      - name: Check out impl
+        uses: actions/checkout@v4
+        with:
+          repository: wleeb1010/soa-harness-impl
+          ref: ${{ github.event.inputs.impl-ref }}
+          path: impl
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Build impl
+        working-directory: impl
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+
+      - name: Start impl
+        working-directory: impl
+        env:
+          SOA_RUNNER_BOOTSTRAP_BEARER: ci-bootstrap-bearer
+          RUNNER_PORT: '7700'
+          RUNNER_HOST: '127.0.0.1'
+          RUNNER_DEMO_MODE: '1'
+          RUNNER_CARD_FIXTURE: ${{ github.workspace }}/spec/test-vectors/conformance-card/agent-card.json
+          RUNNER_TOOLS_FIXTURE: ${{ github.workspace }}/spec/test-vectors/tool-registry/tools.json
+          RUNNER_INITIAL_TRUST: ${{ github.workspace }}/spec/test-vectors/initial-trust/valid.json
+        run: |
+          node packages/runner/dist/bin/start-runner.js &
+          echo "IMPL_PID=$!" >> $GITHUB_ENV
+          # Wait for /health
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7700/health > /dev/null; then
+              echo "impl ready"; break
+            fi
+            sleep 1
+          done
+        shell: bash
+
+      - name: Run validator (V-13 exit gate)
+        working-directory: validator
+        env:
+          SOA_IMPL_URL: http://127.0.0.1:7700
+          SOA_RUNNER_BOOTSTRAP_BEARER: ci-bootstrap-bearer
+          SOA_IMPL_BIN: node ${{ github.workspace }}/impl/packages/runner/dist/bin/start-runner.js
+          SOA_DRIVE_AUDIT_RECORDS: '20'
+        run: |
+          go build -o soa-validate ./cmd/soa-validate
+          ./soa-validate --profile=core \
+            --spec-vectors="${{ github.workspace }}/spec" \
+            --out=release-gate.json
+        shell: bash
+
+      - name: Upload exit-gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exit-gate-${{ matrix.os }}
+          path: |
+            validator/release-gate.json
+            validator/release-gate.junit.xml
+
+      - name: Stop impl
+        if: always()
+        run: |
+          if [ -n "$IMPL_PID" ]; then
+            kill $IMPL_PID || true
+          fi
+        shell: bash

@@ -4,6 +4,30 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 close — SV-SESS-BOOT-02 path-a green; 14 pass / 2 skip / 0 fail)
+
+**Done — three queued prep tasks all landed:**
+
+- **(3) SV-SESS-BOOT-02 path-a wired.** Handler now follows two paths:
+  - **Cheap path:** if the running Runner already serves a ReadOnly card, run the §12.6 tighten-only assertion against it (single POST /sessions(DFA) → 403).
+  - **Path-a:** when running Runner serves DFA conformance card and SOA_IMPL_BIN is set, **spawn a second impl subprocess on test-port+1** (default 7702) with `RUNNER_CARD_PATH=<spec>/test-vectors/agent-card.json` (the pinned ReadOnly default card) and `RUNNER_INITIAL_TRUST=<spec>/test-vectors/initial-trust/valid.json`, wait for `/health=200` via the subprocrunner ReadinessProbe, fire the assertion, kill the subprocess. Today's run: PASS via path-a — `path-a (subprocess on port 7702, ReadOnly card via RUNNER_CARD_PATH=test-vectors/agent-card.json): ReadOnly card + requested DFA → 403 per §12.6 tighten-only gate`.
+- **(2) Platform-matrix scaffolding.** Added `.github/workflows/live-e2e.yml` — `workflow_dispatch`-triggered E2E job on Linux/macOS/Windows that checks out validator + spec + impl at pinned refs, builds impl, starts it under the conformance bootstrap bearer + DFA fixture, runs the V-13 exit-gate command, and uploads `release-gate.json` + JUnit XML as artifacts. Currently manual-trigger only; flips to push/PR triggers once impl ships Week 5b's CI matrix.
+- **(1) V-13 exit-gate documentation.** Added `docs/M1-EXIT-GATE.md` — full env-var reference, output artifact schema, current scoreboard target, platform-coverage notes. The CLI itself was already V-13 functionality; the doc formalizes it as the M1 exit gate.
+
+**Final scoreboard (16 tests):**
+
+| Test | live |
+|---|---|
+| SV-CARD-01, SV-SIGN-01, SV-BOOT-01, SV-PERM-01, HR-01-vector, HR-12, HR-14, SV-AUDIT-TAIL-01, SV-AUDIT-RECORDS-01, SV-AUDIT-RECORDS-02, SV-SESS-BOOT-01, **SV-SESS-BOOT-02**, SV-PERM-20, SV-PERM-22 | **pass** |
+| HR-02 | M3-deferred (must-map) |
+| SV-PERM-21 | skip (PDA signing fixture / L-24 candidate) |
+
+**14 pass / 2 skip / 0 fail.** Zero workaround-passes. Both remaining skips have explicit unblockers (HR-02 by spec milestone, SV-PERM-21 by L-24).
+
+**Pin stays at `1971e87`.** No spec change this round.
+
+---
+
 ## 2026-04-20 (Week 3 day 3 close — V-09 + V-12 subprocess tests green; 13 pass / 3 skip / 0 fail)
 
 **Done:**

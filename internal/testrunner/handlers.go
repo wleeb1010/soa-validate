@@ -663,13 +663,41 @@ func handleSVSESSBOOT02(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: "live path skipped: SOA_IMPL_URL unset"})
 		return out
 	}
-	// Probe the running Runner's card; only execute if it's a ReadOnly card.
-	// The current deployment serves the DFA conformance card, so this skips
-	// with a precise diagnostic rather than firing against the wrong card.
-	resp, err := h.Client.Do(ctx, http.MethodGet, "/.well-known/agent-card.json", nil)
-	if err != nil {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
 		return out
+	}
+
+	// Path 1 (cheap): if the running Runner already serves a ReadOnly card,
+	// run the assertion against it.
+	cardCap := probeRunningCardActiveMode(ctx, h.Client)
+	if cardCap == "ReadOnly" {
+		ev := assertSessBoot02(ctx, h.Client, bearer)
+		ev.Message = "running Runner serves ReadOnly card. " + ev.Message
+		out = append(out, ev)
+		return out
+	}
+
+	// Path 2 (path-a per coordination plan): spawn a second impl with
+	// RUNNER_CARD_PATH pointed at the spec's pinned ReadOnly agent-card.json,
+	// wait for /health, fire the assertion, kill the subprocess.
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("running Runner serves card with activeMode=%s (not ReadOnly). Path (a) needs SOA_IMPL_BIN set to spawn a second impl on a test port with RUNNER_CARD_PATH=<spec>/test-vectors/agent-card.json. Path (b) waits for Week 5b create-soa-agent ReadOnly deployment.", cardCap)})
+		return out
+	}
+	ev := svSessBoot02ViaSubprocess(ctx, h.Spec, bearer, bin, args)
+	out = append(out, ev)
+	return out
+}
+
+func probeRunningCardActiveMode(ctx context.Context, c *runner.Client) string {
+	resp, err := c.Do(ctx, http.MethodGet, "/.well-known/agent-card.json", nil)
+	if err != nil {
+		return ""
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -678,34 +706,101 @@ func handleSVSESSBOOT02(ctx context.Context, h HandlerCtx) []Evidence {
 			ActiveMode string `json:"activeMode"`
 		} `json:"permissions"`
 	}
-	if err := json.Unmarshal(body, &card); err != nil {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "parse card: " + err.Error()})
-		return out
-	}
-	if card.Permissions.ActiveMode != "ReadOnly" {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: fmt.Sprintf("running Runner serves card with activeMode=%s; this test requires a Runner configured with the default test-vectors/agent-card.json (activeMode=ReadOnly). Needs either a second Runner instance or subprocess-invocation harness.", card.Permissions.ActiveMode)})
-		return out
-	}
-	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
-	if bearer == "" {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
-		return out
-	}
-	_, status, err := postSession(ctx, h.Client, bearer, permresolve.CapDangerFullAccess)
+	_ = json.Unmarshal(body, &card)
+	return card.Permissions.ActiveMode
+}
+
+// assertSessBoot02 runs the §12.6 tighten-only assertion against any
+// already-running ReadOnly-card Runner: POST /sessions with DFA must 403.
+func assertSessBoot02(ctx context.Context, c *runner.Client, bootstrap string) Evidence {
+	_, status, err := postSession(ctx, c, bootstrap, permresolve.CapDangerFullAccess)
 	if err != nil {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
-		return out
+		return Evidence{Path: PathLive, Status: StatusError, Message: err.Error()}
 	}
 	if status != http.StatusForbidden {
-		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("POST /sessions(DFA) against ReadOnly card returned %d; expected 403 per §12.6", status)})
-		return out
+		return Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("POST /sessions(DFA) against ReadOnly card returned %d; expected 403 per §12.6", status)}
 	}
-	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
-		Message: "ReadOnly card + requested DFA → 403 per §12.6 tighten-only gate"})
-	return out
+	return Evidence{Path: PathLive, Status: StatusPass,
+		Message: "ReadOnly card + requested DFA → 403 per §12.6 tighten-only gate"}
+}
+
+// svSessBoot02ViaSubprocess spawns a fresh impl with the spec's pinned
+// ReadOnly agent-card.json, waits for /health, runs the assertion, kills
+// the subprocess. Single end-to-end exercise of the SV-SESS-BOOT-02
+// invariant on its own controlled deployment.
+func svSessBoot02ViaSubprocess(ctx context.Context, sv specvec.Locator, bootstrap, bin string, args []string) Evidence {
+	specRoot, _ := filepath.Abs(sv.Root)
+	port := implTestPort() + 1 // +1 so it doesn't clash with V-09/V-12 spawns at the default test port
+	subBootstrap := bootstrap + "-svboot02"
+	env := envWithSystemBasics(map[string]string{
+		"RUNNER_PORT":                 strconv.Itoa(port),
+		"RUNNER_HOST":                 "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":        filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_PATH":            filepath.Join(specRoot, "test-vectors", "agent-card.json"), // ReadOnly default card
+		"RUNNER_TOOLS_FIXTURE":        filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":            "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER": subBootstrap,
+	})
+
+	// Use a probe-client to detect /health=200 readiness.
+	probeClient := runner.New(runner.Config{
+		BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
+		Timeout: 1 * time.Second,
+	})
+
+	type result struct {
+		err     error
+		spawned bool
+	}
+	done := make(chan result, 1)
+	var spawnedRes subprocrunner.Result
+	go func() {
+		spawnedRes = subprocrunner.Spawn(ctx, subprocrunner.Config{
+			Bin: bin, Args: args, Env: env, InheritEnv: false,
+			Timeout:      20 * time.Second,
+			ReadinessProbe: probeClient.Health,
+			PollInterval:   300 * time.Millisecond,
+		})
+		done <- result{}
+	}()
+
+	// Wait until /health responds OR subprocess exits early.
+	deadline := time.Now().Add(15 * time.Second)
+	var ready bool
+	for time.Now().Before(deadline) {
+		select {
+		case <-done:
+			// Subprocess exited before we could fire the assertion —
+			// it's spawnedRes.Stderr that tells us why.
+			return Evidence{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("path-a subprocess exited before /health came up: ExitCode=%d Stderr=%s",
+					spawnedRes.ExitCode, spawnedRes.Stderr[:min(200, len(spawnedRes.Stderr))])}
+		default:
+		}
+		if probeClient.Health(ctx) == nil {
+			ready = true
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if !ready {
+		// Trigger the goroutine to clean up via timeout.
+		<-done
+		return Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("path-a subprocess never reached /health=200 within 15s; ExitCode=%d Stderr=%s",
+				spawnedRes.ExitCode, spawnedRes.Stderr[:min(200, len(spawnedRes.Stderr))])}
+	}
+
+	// Subprocess is up. Fire the assertion against ITS bootstrap bearer.
+	ev := assertSessBoot02(ctx, probeClient, subBootstrap)
+	// Stop waiting on the subprocess; the readiness probe inside Spawn
+	// already returned nil so Spawn will kill+return shortly.
+	<-done
+	if ev.Status == StatusPass {
+		ev.Message = fmt.Sprintf("path-a (subprocess on port %d, ReadOnly card via RUNNER_CARD_PATH=test-vectors/agent-card.json): %s", port, ev.Message)
+	}
+	return ev
 }
 
 // ─── SV-AUDIT-TAIL-01 ────────────────────────────────────────────────────
