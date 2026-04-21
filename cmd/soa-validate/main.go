@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +20,77 @@ import (
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 	"github.com/wleeb1010/soa-validate/internal/testrunner"
 )
+
+func driveAuditRecordsCount() int {
+	raw := os.Getenv("SOA_DRIVE_AUDIT_RECORDS")
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// driveAuditRecords POSTs n /permissions/decisions calls against the demo
+// session. Each call writes one hash-chained audit row. Paces at 2.5s per
+// request — slow enough that the per-bearer rate limit (30 rpm sliding
+// window per impl §10.3.2) cannot fill: after 60 s of pacing the window
+// holds 24 requests, leaving 6 of headroom for subsequent SV-PERM-20 etc.
+// runs that share the bearer.
+//
+// Honors 429 Retry-After when the impl pushes back: sleeps Retry-After+1 s
+// and retries the same record without counting it. Failure modes other
+// than 429 stop the driver and return what was written so far + the error.
+func driveAuditRecords(ctx context.Context, c *runner.Client, n int) (int, error) {
+	demo := os.Getenv("SOA_IMPL_DEMO_SESSION")
+	if demo == "" {
+		return 0, fmt.Errorf("SOA_IMPL_DEMO_SESSION not set; cannot drive records")
+	}
+	parts := strings.SplitN(demo, ":", 2)
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("SOA_IMPL_DEMO_SESSION must be <sid>:<bearer>")
+	}
+	sid, bearer := parts[0], parts[1]
+	body := []byte(fmt.Sprintf(`{"tool":"fs__read_file","session_id":"%s","args_digest":"sha256:%s"}`,
+		sid, strings.Repeat("0", 64)))
+	const pace = 2500 * time.Millisecond
+	hc := &http.Client{Timeout: 10 * time.Second}
+	written := 0
+	for i := 0; i < n; i++ {
+		for {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/permissions/decisions", bytes.NewReader(body))
+			if err != nil {
+				return written, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+bearer)
+			resp, err := hc.Do(req)
+			if err != nil {
+				return written, err
+			}
+			retryAfter := resp.Header.Get("Retry-After")
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusCreated {
+				written++
+				time.Sleep(pace)
+				break
+			}
+			if resp.StatusCode == http.StatusTooManyRequests {
+				secs, _ := strconv.Atoi(retryAfter)
+				if secs <= 0 {
+					secs = 5
+				}
+				time.Sleep(time.Duration(secs+1) * time.Second)
+				continue
+			}
+			return written, fmt.Errorf("decision %d/%d: status %d", i+1, n, resp.StatusCode)
+		}
+	}
+	return written, nil
+}
 
 const version = "0.1.0-week1"
 
@@ -83,6 +158,21 @@ func run(cfg config) error {
 		live = true
 	} else {
 		client = runner.New(runner.Config{BaseURL: ""})
+	}
+
+	// V-07 audit-record driver: if SOA_DRIVE_AUDIT_RECORDS=N is set, fire
+	// N POST /permissions/decisions for fs__read_file against the demo
+	// session before running tests. Grows the audit chain for V-06/V-10
+	// to exercise non-trivial pagination + tamper detection.
+	if live {
+		if n := driveAuditRecordsCount(); n > 0 {
+			driven, err := driveAuditRecords(context.Background(), client, n)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "soa-validate: V-07 driver error after %d records: %v\n", driven, err)
+			} else {
+				fmt.Fprintf(os.Stdout, "V-07 driver: wrote %d audit records via POST /permissions/decisions\n", driven)
+			}
+		}
 	}
 
 	results := testrunner.Run(context.Background(), testrunner.Config{

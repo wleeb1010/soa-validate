@@ -4,6 +4,60 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 — V-06 + V-10 + V-07 + SV-PERM-20 negative matrix all green; 12/4/0)
+
+**Done:**
+- **`/audit/records` was already live on impl** (their STATUS was stale; T-01 had landed). V-06 (SV-AUDIT-RECORDS-01/02) and V-10 (HR-14) flipped from latent-skip directly to PASS once handlers landed.
+- **`internal/auditchain` package** — independent chain-integrity verifier. `VerifyChain` walks records earliest-first asserting `records[0].prev_hash=="GENESIS"` and `records[i].prev_hash==records[i-1].this_hash` for i>0; reports the exact break index on failure. `Tamper` returns a mutated copy with `records[idx].prev_hash` swapped — used by HR-14 to construct a known-broken chain. 5 unit tests.
+- **SV-AUDIT-RECORDS-01 → PASS** (149 records across 2 pages of 100+49; schema-valid on every page; chain order earliest→latest holds; pagination via `next_after` terminates correctly when `has_more=false`).
+- **SV-AUDIT-RECORDS-02 → PASS** (chain integrity verified across all 149 records; no break).
+- **HR-14 → PASS** (tampered `records[74].prev_hash` → VerifyChain flags break at exactly index 74 per §15.5).
+- **SV-PERM-20 negative matrix expanded.** Now asserts the L-22 enum across:
+  - **insufficient-scope** (existing) — fresh session without `request_decide_scope` → 403 reason=insufficient-scope
+  - **session-bearer-mismatch** (NEW) — demo bearer with body session_id from a different session → 403 reason=session-bearer-mismatch
+  - **pda-decision-mismatch** — explicitly skipped on this deployment (would 503 pda-verify-unavailable before reaching mismatch logic; documented in passing message)
+- **V-07 audit-record driver** — `SOA_DRIVE_AUDIT_RECORDS=N` env var. Paces at 2.5s/req to stay under impl's 30 rpm per-bearer rate limit; honors `Retry-After` on 429. Drove 120 records cleanly in this run.
+
+**Validator-side bug surfaced + fixed in flight:** the first driver attempt fired 28 requests in <60s, hit impl's 429 sliding-window rate limit, and cascaded into SV-PERM-20/22 failing because they share the demo bearer's budget. Driver now paces correctly; subsequent tests have headroom.
+
+**Final scoreboard (16 tests, 12 pass / 4 skip / 0 fail):**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | pass + pass | pass (24/24 oracle match + audit invariant) |
+| HR-01 | pass | skip |
+| HR-02 | — | M3-deferred (must-map-driven) |
+| HR-12 | skip | skip |
+| **HR-14** | — | **pass (chain-tamper at exact index, 149-record chain)** |
+| SV-AUDIT-TAIL-01 | — | pass (state-adaptive) |
+| **SV-AUDIT-RECORDS-01** | — | **pass (2-page pagination, 149 records)** |
+| **SV-AUDIT-RECORDS-02** | — | **pass (full chain integrity, 149 records)** |
+| SV-SESS-BOOT-01 | — | pass |
+| SV-SESS-BOOT-02 | — | skip (deployment variation) |
+| SV-PERM-20 | — | pass (positive + 2-of-3 negative matrix; pda-decision-mismatch deferred) |
+| SV-PERM-21 | — | skip (PDA signing fixture TBD — L-24) |
+| SV-PERM-22 | — | pass (L-23 deployment-misconfig branch only; PDA-verify-wired branches deferred) |
+
+**Run command:**
+```
+SOA_IMPL_URL=http://127.0.0.1:7700 \
+SOA_RUNNER_BOOTSTRAP_BEARER=soa-conformance-week3-test-bearer \
+SOA_IMPL_DEMO_SESSION=ses_demoWeek3Conformance01:soa-conformance-week3-decide-bearer \
+SOA_DRIVE_AUDIT_RECORDS=120 \
+soa-validate --profile=core --spec-vectors=<spec> --out=release-gate.json
+```
+
+**Still SKIP (honest, with precise diagnostics):**
+- HR-01 live — impl cold-start restart hook
+- HR-12 — M1 week 5 plan
+- SV-SESS-BOOT-02 live — needs Runner with default ReadOnly card
+- SV-PERM-21 live — needs PDA signing fixture (L-24 candidate, tracked, not blocking M1)
+
+---
+
 ## 2026-04-20 (Week 3 day 3 end-of-day — SV-PERM-22 flipped; 9 pass / 5 skip / 0 fail)
 
 **Done:**

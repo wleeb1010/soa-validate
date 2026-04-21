@@ -55,7 +55,9 @@ const (
 
 	ToolRegistryJSON = "test-vectors/tool-registry/tools.json"
 
-	AuditTailResponseSchema       = "schemas/audit-tail-response.schema.json"
-	SessionBootstrapResponseSchema = "schemas/session-bootstrap-response.schema.json"
+	AuditTailResponseSchema          = "schemas/audit-tail-response.schema.json"
+	SessionBootstrapResponseSchema   = "schemas/session-bootstrap-response.schema.json"
 	PermissionsResolveResponseSchema = "schemas/permissions-resolve-response.schema.json"
+	PermissionDecisionResponseSchema = "schemas/permission-decision-response.schema.json"
+	AuditRecordsResponseSchema       = "schemas/audit-records-response.schema.json"
 )

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
+	"github.com/wleeb1010/soa-validate/internal/auditchain"
 	"github.com/wleeb1010/soa-validate/internal/crlstate"
 	"github.com/wleeb1010/soa-validate/internal/digest"
 	"github.com/wleeb1010/soa-validate/internal/inittrust"
@@ -48,13 +49,15 @@ var Handlers = map[string]Handler{
 	"HR-02":            handleHR02, // bypassed — must-map marks M3-deferred
 	"SV-BOOT-01":       handleSVBOOT01,
 	"HR-12":            stub("assertions land in M1 week 5"),
-	"HR-14":            stub("assertions land in M1 week 5"),
 	"SV-SESS-BOOT-01":  handleSVSESSBOOT01,
 	"SV-SESS-BOOT-02":  handleSVSESSBOOT02,
 	"SV-AUDIT-TAIL-01": handleSVAUDITTAIL01,
-	"SV-PERM-20":       handleSVPERM20,
-	"SV-PERM-21":       handleSVPERM21,
-	"SV-PERM-22":       handleSVPERM22,
+	"SV-PERM-20":          handleSVPERM20,
+	"SV-PERM-21":          handleSVPERM21,
+	"SV-PERM-22":          handleSVPERM22,
+	"HR-14":               handleHR14,
+	"SV-AUDIT-RECORDS-01": handleSVAUDITRECORDS01,
+	"SV-AUDIT-RECORDS-02": handleSVAUDITRECORDS02,
 }
 
 func stub(reason string) Handler {
@@ -1227,46 +1230,66 @@ func handleSVPERM20(ctx context.Context, h HandlerCtx) []Evidence {
 		return out
 	}
 
-	// Auth-negative path: fresh session without decide scope.
+	// Auth-negative #1: fresh session without decide scope → insufficient-scope.
 	sess, sStatus, err := postSession(ctx, h.Client, bootstrap, permresolve.CapReadOnly)
 	if err != nil || sStatus != http.StatusCreated {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "auth-neg: provision session"})
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "auth-neg provision session: " + fmt.Sprintf("status=%d err=%v", sStatus, err)})
 		return out
 	}
-	negReq := permissionDecisionRequest{
+	negReq1 := permissionDecisionRequest{
 		Tool:       "fs__read_file",
 		SessionID:  sess.SessionID,
 		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	_, negRaw, negStatus, err := postDecision(ctx, h.Client, sess.SessionBearer, negReq)
+	_, raw1, st1, err := postDecision(ctx, h.Client, sess.SessionBearer, negReq1)
 	if err != nil {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "auth-neg POST /permissions/decisions: " + err.Error()})
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "neg-1 POST: " + err.Error()})
 		return out
 	}
-	if negStatus != http.StatusForbidden {
+	if r := extractReason(raw1); st1 != http.StatusForbidden || r != "insufficient-scope" {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("auth-neg expected 403, got %d; body=%s", negStatus, string(negRaw))})
+			Message: fmt.Sprintf("auth-neg insufficient-scope: status=%d reason=%q (want 403+insufficient-scope; body=%s)", st1, r, string(raw1))})
 		return out
 	}
-	var negBody struct {
-		Error  string `json:"error"`
-		Reason string `json:"reason"`
+
+	// Auth-negative #2: demo bearer (valid for demoSid) with a body
+	// session_id that DOES NOT match → 403 reason=session-bearer-mismatch.
+	// Use sess.SessionID (the fresh RO session) as the mismatched id.
+	negReq2 := permissionDecisionRequest{
+		Tool:       "fs__read_file",
+		SessionID:  sess.SessionID, // different from demoSid → mismatch
+		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	_ = json.Unmarshal(negRaw, &negBody)
-	observedReason := negBody.Reason
-	if observedReason == "" {
-		observedReason = negBody.Error
+	_ = demoSid
+	_, raw2, st2, err := postDecision(ctx, h.Client, demoBearer, negReq2)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "neg-2 POST: " + err.Error()})
+		return out
 	}
-	if observedReason != "insufficient-scope" {
+	if r := extractReason(raw2); st2 != http.StatusForbidden || r != "session-bearer-mismatch" {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("auth-neg 403 reason=%q; L-22 closed enum requires insufficient-scope", observedReason)})
+			Message: fmt.Sprintf("auth-neg session-bearer-mismatch: status=%d reason=%q (want 403+session-bearer-mismatch; body=%s)", st2, r, string(raw2))})
 		return out
 	}
 
 	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
-		Message: fmt.Sprintf("positive: decision=%s (matches §10.3 oracle), schema-valid, exactly +1 audit record (%d -> %d), audit_this_hash=%s matches tail; auth-negative: fresh session without decide scope -> 403 reason=insufficient-scope (L-22 enum)",
+		Message: fmt.Sprintf("positive: decision=%s matches §10.3 oracle, schema-valid, +1 audit record (%d→%d), audit_this_hash=%s matches tail; negatives: fresh-session-without-decide-scope → 403 insufficient-scope; demo-bearer-with-wrong-session-id → 403 session-bearer-mismatch (both L-22 enum). pda-decision-mismatch variant skipped on this deployment (reaches 503 pda-verify-unavailable before mismatch logic — PDA verify unwired; see SV-PERM-22).",
 			dec.Decision, before.RecordCount, after.RecordCount, summarizeHash(dec.AuditThisHash))})
 	return out
+}
+
+// extractReason returns the canonical reason string from a decisions-endpoint
+// error body. Falls back to the "error" field when "reason" is absent.
+func extractReason(raw []byte) string {
+	var b struct {
+		Error  string `json:"error"`
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal(raw, &b)
+	if b.Reason != "" {
+		return b.Reason
+	}
+	return b.Error
 }
 
 func handleSVPERM21(ctx context.Context, h HandlerCtx) []Evidence {
@@ -1375,5 +1398,219 @@ func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
 			Message: fmt.Sprintf("unexpected status %d; expected 201(pda-verify-failed) or 403(pda-malformed); body=%s", status, string(raw))})
 	}
+	return out
+}
+
+// ─── SV-AUDIT-RECORDS-01 / SV-AUDIT-RECORDS-02 ───────────────────────────
+// GET /audit/records (§10.5.3). Paginated; each page schema-validates;
+// records in chain order (earliest first). Handlers SKIP honestly when
+// the endpoint is 404 (T-01 not shipped) with a precise diagnostic.
+
+type auditRecordsResponse struct {
+	Records       []auditchain.Record `json:"records"`
+	HasMore       bool                `json:"has_more"`
+	NextAfter     string              `json:"next_after,omitempty"`
+	RunnerVersion string              `json:"runner_version"`
+	GeneratedAt   string              `json:"generated_at"`
+}
+
+func getAuditRecordsPage(ctx context.Context, c *runner.Client, bearer, after string, limit int) (auditRecordsResponse, []byte, int, error) {
+	u := c.BaseURL() + "/audit/records"
+	first := true
+	addQ := func(k, v string) {
+		if first {
+			u += "?"
+			first = false
+		} else {
+			u += "&"
+		}
+		u += k + "=" + v
+	}
+	if after != "" {
+		addQ("after", after)
+	}
+	if limit > 0 {
+		addQ("limit", strconv.Itoa(limit))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return auditRecordsResponse{}, nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := runnerHTTP(c).Do(req)
+	if err != nil {
+		return auditRecordsResponse{}, nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return auditRecordsResponse{}, raw, resp.StatusCode, nil
+	}
+	var out auditRecordsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return auditRecordsResponse{}, raw, resp.StatusCode, err
+	}
+	return out, raw, resp.StatusCode, nil
+}
+
+// collectAllRecords walks /audit/records pagination to completion.
+// Returns the full ordered slice plus a trace of each page size.
+func collectAllRecords(ctx context.Context, c *runner.Client, bearer string, sv specvec.Locator) ([]auditchain.Record, []int, int, error) {
+	var all []auditchain.Record
+	var pageSizes []int
+	after := ""
+	for i := 0; i < 100; i++ { // safety cap: absurd ceiling
+		page, raw, status, err := getAuditRecordsPage(ctx, c, bearer, after, 0)
+		if err != nil {
+			return nil, nil, status, err
+		}
+		if status != http.StatusOK {
+			return nil, nil, status, fmt.Errorf("page %d: status %d body=%s", i, status, string(raw))
+		}
+		if err := agentcard.ValidateJSON(sv.Path(specvec.AuditRecordsResponseSchema), raw); err != nil {
+			return nil, nil, status, fmt.Errorf("page %d schema: %w", i, err)
+		}
+		pageSizes = append(pageSizes, len(page.Records))
+		all = append(all, page.Records...)
+		if !page.HasMore {
+			return all, pageSizes, http.StatusOK, nil
+		}
+		if page.NextAfter == "" {
+			return nil, nil, status, fmt.Errorf("page %d has_more=true but next_after empty", i)
+		}
+		after = page.NextAfter
+	}
+	return nil, nil, 0, fmt.Errorf("pagination did not terminate after 100 pages")
+}
+
+func handleSVAUDITRECORDS01(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §10.5.3"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	_, demoBearer, ok := parseDemoSession()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_DEMO_SESSION not set"})
+		return out
+	}
+	// Probe endpoint existence first.
+	_, _, status, _ := getAuditRecordsPage(ctx, h.Client, demoBearer, "", 0)
+	if status == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "GET /audit/records → 404; impl has not shipped T-01 yet (§10.5.3 endpoint pending). Handler code ready; auto-flips to full assertion when T-01 lands."})
+		return out
+	}
+	all, pageSizes, _, err := collectAllRecords(ctx, h.Client, demoBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "collect pages: " + err.Error()})
+		return out
+	}
+	// Chain ordering: timestamps non-decreasing (earliest first is the spec
+	// requirement; pagination follows the same order).
+	for i := 1; i < len(all); i++ {
+		if all[i-1].Timestamp > all[i].Timestamp {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("chain-order violation at records[%d]: timestamp %s < %s", i, all[i].Timestamp, all[i-1].Timestamp)})
+			return out
+		}
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("walked %d pages (sizes=%v); %d records total; schema-valid on every page; chain order (earliest→latest) holds", len(pageSizes), pageSizes, len(all))})
+	return out
+}
+
+func handleSVAUDITRECORDS02(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §10.5.3+§10.5"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	_, demoBearer, ok := parseDemoSession()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_DEMO_SESSION not set"})
+		return out
+	}
+	_, _, status, _ := getAuditRecordsPage(ctx, h.Client, demoBearer, "", 0)
+	if status == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "GET /audit/records → 404; impl has not shipped T-01. Chain-integrity assertion ready; fires when T-01 lands."})
+		return out
+	}
+	all, _, _, err := collectAllRecords(ctx, h.Client, demoBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if len(all) == 0 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "chain is empty (no records on this Runner yet); SV-AUDIT-RECORDS-02 needs ≥1 record to assert. Drive records via SOA_DRIVE_AUDIT_RECORDS=N."})
+		return out
+	}
+	if brk, err := auditchain.VerifyChain(all); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("chain break at index %d: %v", brk, err)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§10.5 chain integrity holds across %d records: records[0].prev_hash=GENESIS; for all i>0 records[i].prev_hash==records[i-1].this_hash", len(all))})
+	return out
+}
+
+// ─── HR-14 ────────────────────────────────────────────────────────────────
+// Audit hash chain — any prev_hash tamper MUST fail chain verification.
+// Live: read chain, verify, tamper locally, re-verify, assert failure at
+// exact break index. Pure validator-side mutation — no state written to
+// the Runner.
+
+func handleHR14(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §15.5"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	_, demoBearer, ok := parseDemoSession()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_DEMO_SESSION not set"})
+		return out
+	}
+	_, _, status, _ := getAuditRecordsPage(ctx, h.Client, demoBearer, "", 0)
+	if status == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "GET /audit/records → 404; impl has not shipped T-01. Chain-tamper assertion ready; fires when T-01 lands."})
+		return out
+	}
+	all, _, _, err := collectAllRecords(ctx, h.Client, demoBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if len(all) < 3 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("chain has %d records; HR-14 needs ≥3 so the tamper index is mid-chain. Drive more via SOA_DRIVE_AUDIT_RECORDS=N.", len(all))})
+		return out
+	}
+	// Baseline: chain must verify first.
+	if brk, err := auditchain.VerifyChain(all); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("pre-tamper chain invalid at index %d: %v", brk, err)})
+		return out
+	}
+	// Tamper at mid-chain.
+	target := len(all) / 2
+	tampered := auditchain.Tamper(all, target)
+	brk, err := auditchain.VerifyChain(tampered)
+	if err == nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "tamper at mid-chain did not trigger chain-verify failure; §15.5 violated"})
+		return out
+	}
+	if brk != target {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("tamper at index %d detected at %d instead; break index must match exactly", target, brk)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("live chain of %d records verifies; tampered records[%d].prev_hash → VerifyChain flags break at exactly index %d per §15.5", len(all), target, target)})
 	return out
 }
