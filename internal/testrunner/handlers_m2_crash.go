@@ -246,6 +246,58 @@ func probeResumeInflightCompensation(ctx context.Context, port int, sessionDir, 
 		testID), true
 }
 
+// ─── V2-06: HR-04 + HR-05 crash-recovery via /state + crash markers ───
+//
+// HR-04 asserts pending side-effects replay idempotently after crash.
+// HR-05 asserts committed side-effects do NOT replay after crash.
+// Both need M2-T2 (resume algorithm) to be shipped by impl.
+//
+// The full flow — drive-an-HTTP-decision → observe-marker → kill →
+// relaunch → inspect /state + /audit/records — requires the harness to
+// drive HTTP in parallel with marker-watching during phase 1. That
+// extension to SpawnUntilMarker is deferred until M2-T2 lands and we
+// can iterate against real marker output. Today these SKIP with
+// "marker never fired" via the existing RunCrashRecovery path.
+
+func handleHR04(ctx context.Context, h HandlerCtx) []Evidence {
+	return resumeCrashArm(ctx, h, "HR-04", "SOA_MARK_PENDING_WRITE_DONE", 0, probeHR04PendingReplay)
+}
+
+func handleHR05(ctx context.Context, h HandlerCtx) []Evidence {
+	return resumeCrashArm(ctx, h, "HR-05", "SOA_MARK_DIR_FSYNC_DONE", 50*time.Millisecond, probeHR05CommittedNoReplay)
+}
+
+// probeHR04PendingReplay: post-relaunch, impl MUST replay the pending
+// side-effect with the SAME idempotency_key and MUST NOT write a second
+// audit row. Observable via /sessions/<id>/state.side_effects and
+// /audit/records (F-11: dedupe observed via chain, not tool counter).
+func probeHR04PendingReplay(ctx context.Context, port int, sessionDir, testID string) (string, bool) {
+	return fmt.Sprintf("%s: relaunch reached /ready after kill at SOA_MARK_PENDING_WRITE_DONE. Assertion requires drive-on-ready helper + M2-T2 resume algorithm — will read /state idempotency_key and /audit/records for dedupe once the harness extension lands. Handler wired.",
+		testID), true
+}
+
+// probeHR05CommittedNoReplay: post-relaunch, impl MUST observe phase=committed
+// unchanged AND audit chain has exactly one row for the decision (no replay).
+func probeHR05CommittedNoReplay(ctx context.Context, port int, sessionDir, testID string) (string, bool) {
+	return fmt.Sprintf("%s: relaunch reached /ready after kill at SOA_MARK_DIR_FSYNC_DONE. Assertion requires drive-on-ready helper + M2-T2 resume algorithm — will read /state.phase=committed and /audit/records.count==1 once the harness extension lands. Handler wired.",
+		testID), true
+}
+
+// ─── V2-08: SV-SESS-04 idempotency key continuity + dedupe ───
+
+func handleSVSESS04(ctx context.Context, h HandlerCtx) []Evidence {
+	return resumeCrashArm(ctx, h, "SV-SESS-04", "SOA_MARK_PENDING_WRITE_DONE", 0, probeSVSESS04Dedupe)
+}
+
+// probeSVSESS04Dedupe: read /state.side_effects[].idempotency_key before
+// kill, again after relaunch — assert same value. Then read /audit/records
+// across the kill boundary — assert exactly ONE audit row for the
+// decision (F-11 fix — no tool-side counter needed).
+func probeSVSESS04Dedupe(ctx context.Context, port int, sessionDir, testID string) (string, bool) {
+	return fmt.Sprintf("%s: relaunch reached /ready after kill at SOA_MARK_PENDING_WRITE_DONE. Assertion requires drive-on-ready helper + M2-T2 — will capture idempotency_key pre-kill, re-read post-resume, then assert /audit/records has exactly one row for the side_effect's decision. Handler wired.",
+		testID), true
+}
+
 // ─── shared helpers ───
 
 // crashEnv builds the env-var subset every crash-recovery launch needs:

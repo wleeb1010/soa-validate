@@ -75,6 +75,14 @@ var Handlers = map[string]Handler{
 	"SV-SESS-08": handleSVSESS08,
 	"SV-SESS-09": handleSVSESS09,
 	"SV-SESS-10": handleSVSESS10,
+
+	// M2 Week 2 (V2-06 + V2-07 + V2-08) — crash-recovery via /state +
+	// bracket-persist + idempotency key continuity. Scaffolded against
+	// M2-T2 (resume algorithm) — flip as impl ships T-2.
+	"HR-04":      handleHR04,
+	"HR-05":      handleHR05,
+	"SV-SESS-03": handleSVSESS03,
+	"SV-SESS-04": handleSVSESS04,
 }
 
 func stub(reason string) Handler {

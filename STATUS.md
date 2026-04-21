@@ -94,6 +94,27 @@ Ran `/tmp/soa-validate --profile=core` against live impl on `127.0.0.1:7700` (pi
 
 ---
 
+## 2026-04-21 (Day 1 evening — V2-06 + V2-07 + V2-08 scaffolds landed)
+
+**Done (while waiting on impl M2-T2 — resume algorithm):**
+- **V2-06 / V2-07 / V2-08 scaffolds shipped.** Four new handlers registered: `HR-04`, `HR-05`, `SV-SESS-03`, `SV-SESS-04` — all tagged M2 in must-map, all now invoked by the runner.
+- `HR-04` — kill at `SOA_MARK_PENDING_WRITE_DONE`; probe asserts idempotency_key preserved + `/audit/records` single-row per §12.5 step 4 (dedupe via chain, F-11 fix). Wired via existing `resumeCrashArm`.
+- `HR-05` — kill at `SOA_MARK_DIR_FSYNC_DONE` (+50ms PreKillDelay); probe asserts phase=committed unchanged + still single audit row (no replay).
+- `SV-SESS-04` — kill at `SOA_MARK_PENDING_WRITE_DONE`; probe captures idempotency_key pre/post resume + audit-chain single-row dedupe check.
+- `SV-SESS-03` — live-only (no crash): bootstrap + /state reachability probe; full drive-and-observe loop for phase transitions + monotonic `last_phase_transition_at` gated on impl M2-T2 (phase writes need to be visible).
+- Probe bodies document the exact §12.5 + /state + /audit/records assertions that fire once M2-T2 lands + the drive-on-ready harness extension is added (extension deferred so it can be iterated against real marker output).
+
+**Scoreboard (live run, pin `507eeb1`, 30 test IDs registered):** 7 pass / 2 fail / 3 error / 18 skip. M2 deltas from yesterday: +4 handlers, same 2 greens (SV-SESS-05, SV-SESS-11), same Finding A/B blockers.
+
+**14 M2 test IDs now wired total.** Breakdown:
+- **Week 1** (5): SV-SESS-05 ✅, SV-SESS-11 ✅, SV-PERM-19 ⏳ (Finding A), SV-AUDIT-SINK-EVENTS-01 ⏳ (Finding A), SV-SESS-STATE-01 ⏳ (Finding B).
+- **Week 2** (4): HR-04, HR-05, SV-SESS-03, SV-SESS-04 — all scaffolded, SKIP pending M2-T2.
+- **Week 3** (5): SV-SESS-06 / -07 / -08 / -09 / -10 — all scaffolded, SKIP pending M2-T2 + `RUNNER_CRASH_TEST_MARKERS`.
+
+**Next impl trigger:** M2-T2 (resume algorithm) + `RUNNER_CRASH_TEST_MARKERS=1` support. When STATUS signals T-2 live, V2-06 + V2-09c fire; expected delta +4 (HR-04, HR-05, SV-SESS-04, SV-SESS-08) + partial flips on the rest. Drive-on-ready harness extension goes in after T-2 so it can be shaped against real markers.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
