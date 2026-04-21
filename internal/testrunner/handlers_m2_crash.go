@@ -55,6 +55,12 @@ func handleSVSESS07(ctx context.Context, h HandlerCtx) []Evidence {
 // atomicWriteCrashArm implements the common §12.3 atomic-write assertion:
 // kill between COMMITTED_WRITE_DONE and DIR_FSYNC_DONE, assert relaunched
 // impl reads a fully-flushed (not partial) session state.
+//
+// Phase 1 drives POST /permissions/decisions which, per §12.2 bracket-
+// persist, SHOULD emit the PENDING_WRITE_DONE → TOOL_INVOKE_* →
+// COMMITTED_WRITE_DONE → DIR_FSYNC_DONE marker sequence for the resulting
+// side_effect. If the expected marker doesn't fire, we collect the
+// actually-observed markers for the dead-marker diagnostic.
 func atomicWriteCrashArm(ctx context.Context, h HandlerCtx, testID, platformLabel, platformTag string) []Evidence {
 	out := []Evidence{{Path: PathVector, Status: StatusSkip,
 		Message: "live-only — §12.3 " + platformLabel + " atomic-write is a crash-path assertion"}}
@@ -81,10 +87,6 @@ func atomicWriteCrashArm(ctx context.Context, h HandlerCtx, testID, platformLabe
 	port := implTestPort()
 	env := crashEnv(specRoot, port, testID+"-test-bearer", sessionDir)
 
-	// Kill AT COMMITTED_WRITE_DONE with a small delay so the committed
-	// write has time to land on disk but DIR_FSYNC_DONE hasn't fired yet.
-	// §12.3 asserts the relaunched impl reads a fully-flushed state — the
-	// atomic rename preserves either old OR new state, never a partial.
 	res := subprocrunner.RunCrashRecovery(ctx, subprocrunner.CrashRecoveryConfig{
 		Bin:                bin,
 		Args:               args,
@@ -95,10 +97,15 @@ func atomicWriteCrashArm(ctx context.Context, h HandlerCtx, testID, platformLabe
 		RelaunchEnv:        envWithSystemBasics(env),
 		RelaunchTimeout:    15 * time.Second,
 		RelaunchReadyURL:   fmt.Sprintf("http://127.0.0.1:%d/ready", port),
+		// Drive a permission decision to exercise the side-effect bracket-
+		// persist path. If impl has wired markerPhase.side_effect to this
+		// path, PENDING/COMMITTED markers fire.
+		FirstLaunchReadyURL: fmt.Sprintf("http://127.0.0.1:%d/ready", port),
+		FirstLaunchOnReady:  driveDecisionForMarker(env["SOA_RUNNER_BOOTSTRAP_BEARER"], port),
 	}, func(probeCtx context.Context) (string, bool) {
 		return probeAtomicWriteState(probeCtx, port, sessionDir, testID)
 	})
-	out = append(out, classifyCrashResult(res, testID))
+	out = append(out, classifyCrashResultWithMarkers(res, testID, "SOA_MARK_COMMITTED_WRITE_DONE"))
 	return out
 }
 
@@ -132,8 +139,9 @@ func handleSVSESS10(ctx context.Context, h HandlerCtx) []Evidence {
 	return resumeCrashArm(ctx, h, "SV-SESS-10", "SOA_MARK_TOOL_INVOKE_START", 25*time.Millisecond, probeResumeInflightCompensation)
 }
 
-// resumeCrashArm is the common shell: launch, kill at marker, relaunch
-// with identical env, run the per-test probe.
+// resumeCrashArm is the common shell: launch + drive a decision (to
+// trigger §12.2 bracket-persist markers), kill at the configured marker,
+// relaunch with identical env, run the per-test probe.
 func resumeCrashArm(ctx context.Context, h HandlerCtx, testID, marker string, preKill time.Duration, probe func(context.Context, int, string, string) (string, bool)) []Evidence {
 	out := []Evidence{{Path: PathVector, Status: StatusSkip,
 		Message: "live-only — §12.5 resume algorithm is a crash-path assertion"}}
@@ -155,19 +163,21 @@ func resumeCrashArm(ctx context.Context, h HandlerCtx, testID, marker string, pr
 	env := crashEnv(specRoot, port, testID+"-test-bearer", sessionDir)
 
 	res := subprocrunner.RunCrashRecovery(ctx, subprocrunner.CrashRecoveryConfig{
-		Bin:                bin,
-		Args:               args,
-		FirstLaunchEnv:     envWithSystemBasics(env),
-		Marker:             marker,
-		PreKillDelay:       preKill,
-		FirstLaunchTimeout: 25 * time.Second,
-		RelaunchEnv:        envWithSystemBasics(env),
-		RelaunchTimeout:    15 * time.Second,
-		RelaunchReadyURL:   fmt.Sprintf("http://127.0.0.1:%d/ready", port),
+		Bin:                 bin,
+		Args:                args,
+		FirstLaunchEnv:      envWithSystemBasics(env),
+		Marker:              marker,
+		PreKillDelay:        preKill,
+		FirstLaunchTimeout:  25 * time.Second,
+		RelaunchEnv:         envWithSystemBasics(env),
+		RelaunchTimeout:     15 * time.Second,
+		RelaunchReadyURL:    fmt.Sprintf("http://127.0.0.1:%d/ready", port),
+		FirstLaunchReadyURL: fmt.Sprintf("http://127.0.0.1:%d/ready", port),
+		FirstLaunchOnReady:  driveDecisionForMarker(env["SOA_RUNNER_BOOTSTRAP_BEARER"], port),
 	}, func(probeCtx context.Context) (string, bool) {
 		return probe(probeCtx, port, sessionDir, testID)
 	})
-	out = append(out, classifyCrashResult(res, testID))
+	out = append(out, classifyCrashResultWithMarkers(res, testID, marker))
 	return out
 }
 
@@ -480,11 +490,47 @@ func probeHR04PendingReplay(ctx context.Context, port int, sessionDir, testID st
 		testID), true
 }
 
-// probeHR05CommittedNoReplay: post-relaunch, impl MUST observe phase=committed
-// unchanged AND audit chain has exactly one row for the decision (no replay).
+// probeHR05CommittedNoReplay (§12.5 — committed does NOT replay):
+// post-relaunch, read the persisted session files from sessionDir. Assert
+// each is valid JSON with format_version="1.0" and workflow.side_effects
+// present. The fact that DIR_FSYNC_DONE fired before kill means the
+// session was atomically persisted; relaunch SHOULD read it intact (no
+// rewrites, no partial-file corruption). Narrow assertion — the deeper
+// §12.5 "committed-side-effect-doesn't-replay" requires a bracket-
+// persist path with tool invocations (not yet shipped impl-side).
 func probeHR05CommittedNoReplay(ctx context.Context, port int, sessionDir, testID string) (string, bool) {
-	return fmt.Sprintf("%s: relaunch reached /ready after kill at SOA_MARK_DIR_FSYNC_DONE. Assertion requires drive-on-ready helper + M2-T2 resume algorithm — will read /state.phase=committed and /audit/records.count==1 once the harness extension lands. Handler wired.",
-		testID), true
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		return fmt.Sprintf("%s: relaunch reached /ready but could not read sessionDir: %v", testID, err), false
+	}
+	var sessionFiles []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "ses_") && strings.HasSuffix(e.Name(), ".json") {
+			sessionFiles = append(sessionFiles, e.Name())
+		}
+	}
+	if len(sessionFiles) == 0 {
+		return fmt.Sprintf("%s: relaunch reached /ready but sessionDir contains no session files post-DIR_FSYNC_DONE kill — §12.3 atomic-write contract violated", testID), false
+	}
+	for _, name := range sessionFiles {
+		path := filepath.Join(sessionDir, name)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Sprintf("%s: session file %s unreadable post-relaunch: %v", testID, name, err), false
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return fmt.Sprintf("%s: session file %s is not valid JSON post-relaunch: %v", testID, name, err), false
+		}
+		if parsed["format_version"] != "1.0" {
+			return fmt.Sprintf("%s: session file %s has format_version=%v (want 1.0)", testID, name, parsed["format_version"]), false
+		}
+		if _, ok := parsed["workflow"]; !ok {
+			return fmt.Sprintf("%s: session file %s missing workflow field", testID, name), false
+		}
+	}
+	return fmt.Sprintf("%s: kill at SOA_MARK_DIR_FSYNC_DONE (post-persist); phase-2 relaunch reached /ready; %d session file(s) in sessionDir read clean (format_version=1.0, workflow present). Narrow assertion: §12.3 atomic-write boundary survived kill+restart. Deeper §12.5 committed-side-effect-no-replay gated on bracket-persist tool-invocation path (not yet shipped impl-side).",
+		testID, len(sessionFiles)), true
 }
 
 // ─── V2-08: SV-SESS-04 idempotency key continuity + dedupe ───
@@ -550,6 +596,93 @@ func classifyCrashResult(res subprocrunner.CrashRecoveryResult, testID string) E
 	default:
 		return Evidence{Path: PathLive, Status: StatusFail,
 			Message: res.ProbeMsg}
+	}
+}
+
+// classifyCrashResultWithMarkers is a dead-marker-aware classifier: when
+// the expected marker didn't fire, it reports exactly which markers DID
+// fire (observed) + whether the drive-on-ready flow succeeded. This is
+// Finding H diagnostic material — tells impl exactly what needs fixing
+// at the call site without forcing impl to repro the test.
+func classifyCrashResultWithMarkers(res subprocrunner.CrashRecoveryResult, testID, expected string) Evidence {
+	if res.FirstLaunch.MarkerSeen {
+		// Marker fired — route through the standard classifier.
+		return classifyCrashResult(res, testID)
+	}
+	observed := res.FirstLaunch.ObservedMarkers
+	onReadyFired := res.FirstLaunch.OnReadyFired
+	var onReadyErrMsg string
+	if res.FirstLaunch.OnReadyErr != nil {
+		onReadyErrMsg = res.FirstLaunch.OnReadyErr.Error()
+	}
+	// Build precise Finding H diagnostic.
+	var driveStatus string
+	switch {
+	case !onReadyFired:
+		driveStatus = "OnReady never fired — impl never reached /ready=200 during first launch timeout"
+	case onReadyErrMsg != "":
+		driveStatus = "OnReady fired but returned error: " + onReadyErrMsg
+	default:
+		driveStatus = "OnReady fired cleanly (POST /permissions/decisions accepted)"
+	}
+	var observedSummary string
+	if len(observed) == 0 {
+		observedSummary = "impl emitted ZERO SOA_MARK_* lines during first-launch stderr stream"
+	} else {
+		observedSummary = fmt.Sprintf("impl emitted %d SOA_MARK_* line(s): %s",
+			len(observed), summarizeMarkers(observed))
+	}
+	msg := fmt.Sprintf("%s: expected marker %q not observed in first-launch stderr. Drive status: %s. %s. Finding H specifics: expected marker is defined in impl (packages/runner/src/markers/index.ts) but its call site is either (a) never reached by the driven flow, (b) gated on a markerPhase.side_effect field that no caller passes, or (c) emitted at a different boundary. Actionable fix: instrument the persister.writeSession call site(s) to pass markerPhase.side_effect when a decision produces a side-effect bracket.",
+		testID, expected, driveStatus, observedSummary)
+	return Evidence{Path: PathLive, Status: StatusSkip, Message: msg}
+}
+
+func summarizeMarkers(observed []string) string {
+	// Keep message bounded — show first 5 markers, then "..." if more.
+	if len(observed) <= 5 {
+		return strings.Join(observed, " | ")
+	}
+	return strings.Join(observed[:5], " | ") + fmt.Sprintf(" | ... (+%d more)", len(observed)-5)
+}
+
+// driveDecisionForMarker returns an OnReady callback that mints a session
+// and POSTs a permission decision for a side-effecting tool. This is the
+// §12.2 bracket-persist trigger — if impl wires markers correctly, this
+// call path fires PENDING_WRITE_DONE → TOOL_INVOKE_START → TOOL_INVOKE_DONE
+// → COMMITTED_WRITE_DONE → DIR_FSYNC_DONE plus AUDIT_APPEND_DONE.
+func driveDecisionForMarker(bootstrapBearer string, port int) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		client := runner.New(runner.Config{
+			BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
+			Timeout: 2 * time.Second,
+		})
+		sid, bearer, status, err := m2Bootstrap(ctx, client, bootstrapBearer)
+		if err != nil {
+			return fmt.Errorf("bootstrap: %w", err)
+		}
+		if status != http.StatusCreated {
+			return fmt.Errorf("bootstrap status=%d", status)
+		}
+		// fs__write_file is a Mutating tool — triggers side-effect bracket
+		// per §12.2. args_digest is the canonical 64-hex-zero placeholder.
+		body := fmt.Sprintf(
+			`{"tool":"fs__write_file","session_id":%q,"args_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}`,
+			sid,
+		)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			fmt.Sprintf("http://127.0.0.1:%d/permissions/decisions", port),
+			strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+		if err != nil {
+			return fmt.Errorf("POST /permissions/decisions: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("POST /permissions/decisions status=%d", resp.StatusCode)
+		}
+		return nil
 	}
 }
 

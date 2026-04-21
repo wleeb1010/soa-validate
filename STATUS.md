@@ -359,6 +359,58 @@ Either unlocks the remaining 8 M2 IDs for validator-side exercise. Expected ceil
 
 ---
 
+## 2026-04-21 (Day 1 evening-7 — V2-04 harness extended with drive-on-ready; +3 M2 greens; Finding H specifics per test)
+
+**Done:**
+- **SpawnUntilMarker + RunCrashRecovery extended** with `ReadyURL` + `OnReady` fields. Phase 1 now can drive HTTP once `/ready=200`. Also added `ObservedMarkers []string` + `OnReadyFired bool` + `OnReadyErr error` to the result so dead-marker diagnostics cite exactly which markers fired.
+- **`driveDecisionForMarker`** helper: mints a session + POSTs `/permissions/decisions` for `fs__write_file` (a Mutating tool) to exercise the §12.2 bracket-persist path that SHOULD emit PENDING/COMMITTED/TOOL_INVOKE markers.
+- **`classifyCrashResultWithMarkers`** helper: converts marker-never-fired into a specific Finding H evidence message with observed-markers list + drive-status.
+- **HR-05 probe grounded**: now reads `sessionDir` after relaunch, confirms session file is valid JSON with `format_version=1.0` + `workflow` present. Narrow assertion: §12.3 atomic-write boundary survived kill+restart. (Deeper §12.5 committed-side-effect-no-replay still gated on tool-invocation bracket-persist which impl hasn't shipped.)
+
+### Scoreboard (pin `5fb1af9`, 32 IDs) — **22 pass / 0 fail / 10 skip / 0 error**, exit 0
+
+**M2 live-green: 7** (was 6 this morning, 4 at midday). New this round:
+- **HR-05** — kill at SOA_MARK_DIR_FSYNC_DONE + verified session file intact post-relaunch.
+
+**Audit-chain-backed greens flipped by drive-on-ready:**
+- **HR-14** — now 5-record chain available; tamper at index 2 correctly detected.
+- **SV-AUDIT-RECORDS-02** — §10.5 chain integrity verifies across 5 records.
+
+### Finding H — precise per-test specifics (drive-on-ready exposes exactly which markers fire)
+
+All four skip-with-diagnostic results collected in one live run. OnReady fired cleanly on every test (POST /permissions/decisions accepted).
+
+| Test ID | Expected Marker | Observed Markers (Phase 1 stderr) | Specific impl gap |
+|---|---|---|---|
+| HR-04 | `SOA_MARK_PENDING_WRITE_DONE` | `SOA_MARK_DIR_FSYNC_DONE`, `SOA_MARK_AUDIT_APPEND_DONE` | PENDING_WRITE_DONE call site gated on `markerPhase.side_effect` (no caller sets it) |
+| SV-SESS-07 | `SOA_MARK_COMMITTED_WRITE_DONE` | `SOA_MARK_DIR_FSYNC_DONE`, `SOA_MARK_AUDIT_APPEND_DONE` | COMMITTED_WRITE_DONE same dependency; session-bootstrap write path doesn't pass markerPhase |
+| SV-SESS-08 | `SOA_MARK_PENDING_WRITE_DONE` | `SOA_MARK_DIR_FSYNC_DONE`, `SOA_MARK_AUDIT_APPEND_DONE` | same as HR-04 |
+| SV-SESS-10 | `SOA_MARK_TOOL_INVOKE_START` | `SOA_MARK_DIR_FSYNC_DONE`, `SOA_MARK_AUDIT_APPEND_DONE` | TOOL_INVOKE_* requires a tool-invocation endpoint (not yet shipped impl-side) |
+| SV-SESS-06 | `SOA_MARK_COMMITTED_WRITE_DONE` | n/a — POSIX platform guard skips on Windows runner | platform gating; test runs on Linux/macOS CI only |
+| SV-SESS-03 | n/a (no crash) | — | requires /state.workflow.side_effects to populate; bracket-persist path not shipped |
+| SV-SESS-09 | card-drift | — | requires Finding C (resume trigger) + Finding E resolution composition |
+
+### Actionable impl punch list for Finding H
+
+`packages/runner/src/markers/index.ts` defines 7 markers. Today 2 are live:
+- `SOA_MARK_DIR_FSYNC_DONE` — fires from `persister.writeSession` post-rename-commit path
+- `SOA_MARK_AUDIT_APPEND_DONE` — fires from `audit/chain.ts` post-hash-commit
+
+The other 5 (`PENDING_WRITE_DONE`, `COMMITTED_WRITE_DONE`, `TOOL_INVOKE_START/DONE`, `AUDIT_BUFFER_WRITE_DONE`) are defined but have no production call sites that pass the required `markerPhase.side_effect` argument. Fix per marker:
+
+- `pendingWriteDone(session_id, side_effect)` + `committedWriteDone(session_id, side_effect)` — add call sites in the bracket-persist path inside a side-effect invocation flow; requires impl to wire up a tool-invocation endpoint or have permission-decision processing pass the new decision as a side_effect in `markerPhase`.
+- `toolInvokeStart(session_id, side_effect)` + `toolInvokeDone(session_id, side_effect, result)` — requires a tool-execution surface that the Runner proxies (not yet shipped).
+- `auditBufferWriteDone` — fires from the audit-sink degraded-buffering state machine; exercised by SV-PERM-19 which PASSES, so this one may be wired but not yet observable in my crash-path tests.
+
+### Net state
+
+- **22 pass / 0 fail / 10 skip / 0 error** across 32 test IDs.
+- **M2 live-green: 7** (SV-SESS-01, SV-SESS-05, SV-SESS-11, SV-PERM-19, SV-SESS-STATE-01, SV-AUDIT-SINK-EVENTS-01, HR-05).
+- 8 M2 IDs remain SKIP, all with precise dead-marker diagnostics.
+- Findings A–F, H all have actionable impl-side resolutions; C blocks the big cluster (HR-04, SV-SESS-02/04/08/09/10), H blocks the marker cluster (SV-SESS-03/06/07/08/10, HR-04).
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**

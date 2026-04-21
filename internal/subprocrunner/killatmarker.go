@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
 	"os/exec"
 	"strings"
 	"sync"
@@ -56,6 +57,17 @@ type KillAtMarkerConfig struct {
 	// observed before killing — useful when the test wants the write
 	// that *triggered* the marker to land on disk before crash.
 	PreKillDelay time.Duration
+
+	// ReadyURL is polled at 250ms intervals. When the GET returns
+	// 200, OnReady fires (once) in a dedicated goroutine. The marker
+	// watcher continues in parallel — OnReady drives HTTP flows that
+	// are expected to produce the marker.
+	ReadyURL string
+
+	// OnReady is invoked once after ReadyURL returns 200. It may
+	// take any time; its return value is recorded but not used for
+	// kill decisions (kill still fires on marker / self-exit / timeout).
+	OnReady func(ctx context.Context) error
 }
 
 // KillAtMarkerResult extends Result with marker-observation fields.
@@ -70,6 +82,17 @@ type KillAtMarkerResult struct {
 	KilledAfterMarker bool
 	// MarkerObservedAt is the wall-clock time the marker appeared.
 	MarkerObservedAt time.Time
+	// OnReadyFired is true iff OnReady was invoked (ReadyURL returned 200).
+	OnReadyFired bool
+	// OnReadyErr captures any error OnReady returned — e.g. HTTP error
+	// from a driven POST. Useful for diagnostics when the marker never
+	// fires (distinguishes "OnReady never ran" from "OnReady ran but
+	// impl emitted a different marker").
+	OnReadyErr error
+	// ObservedMarkers lists every SOA_MARK_* line seen in stderr, in
+	// order. Helps callers report "expected PENDING_WRITE_DONE, saw
+	// DIR_FSYNC_DONE" precisely.
+	ObservedMarkers []string
 }
 
 // SpawnUntilMarker runs cfg.Bin until one of:
@@ -111,9 +134,11 @@ func SpawnUntilMarker(ctx context.Context, cfg KillAtMarkerConfig) KillAtMarkerR
 
 	// Stream stderr line-by-line; buffer every line so we can attribute
 	// the crash after the fact. On the first line containing Marker,
-	// signal via markerCh.
+	// signal via markerCh. Also record every `SOA_MARK_*` line observed
+	// so callers can diagnose "expected X but saw Y".
 	var stderrBuf bytes.Buffer
 	var stderrMu sync.Mutex
+	var observedMarkers []string
 	markerCh := make(chan time.Time, 1)
 	scanDone := make(chan struct{})
 	go func() {
@@ -126,6 +151,13 @@ func SpawnUntilMarker(ctx context.Context, cfg KillAtMarkerConfig) KillAtMarkerR
 			stderrMu.Lock()
 			stderrBuf.WriteString(line)
 			stderrBuf.WriteByte('\n')
+			if idx := strings.Index(line, "SOA_MARK_"); idx >= 0 {
+				// Extract the first-occurrence-through-end-of-token as
+				// the observed marker (handles "SOA_MARK_X session_id=Y"
+				// or bare "SOA_MARK_X" lines).
+				trimmed := line[idx:]
+				observedMarkers = append(observedMarkers, trimmed)
+			}
 			stderrMu.Unlock()
 			if !seen && cfg.Marker != "" && strings.Contains(line, cfg.Marker) {
 				seen = true
@@ -143,6 +175,39 @@ func SpawnUntilMarker(ctx context.Context, cfg KillAtMarkerConfig) KillAtMarkerR
 		}
 	}()
 
+	// If OnReady + ReadyURL configured, poll readiness in a goroutine
+	// and fire OnReady once. The marker watcher continues in parallel.
+	onReadyDone := make(chan struct{})
+	if cfg.ReadyURL != "" && cfg.OnReady != nil {
+		go func() {
+			defer close(onReadyDone)
+			client := &http.Client{Timeout: 1 * time.Second}
+			deadline := time.Now().Add(timeout)
+			for time.Now().Before(deadline) {
+				req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, cfg.ReadyURL, nil)
+				if reqErr == nil {
+					if resp, err := client.Do(req); err == nil {
+						resp.Body.Close()
+						if resp.StatusCode == http.StatusOK {
+							r.OnReadyFired = true
+							readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+							r.OnReadyErr = cfg.OnReady(readyCtx)
+							cancel()
+							return
+						}
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+		}()
+	} else {
+		close(onReadyDone)
+	}
+
 	exitCh := make(chan error, 1)
 	go func() { exitCh <- cmd.Wait() }()
 
@@ -150,6 +215,7 @@ func SpawnUntilMarker(ctx context.Context, cfg KillAtMarkerConfig) KillAtMarkerR
 		r.Stdout = stdoutBuf.String()
 		stderrMu.Lock()
 		r.Stderr = stderrBuf.String()
+		r.ObservedMarkers = append([]string(nil), observedMarkers...)
 		stderrMu.Unlock()
 	}
 

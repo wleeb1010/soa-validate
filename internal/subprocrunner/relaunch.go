@@ -60,6 +60,14 @@ type CrashRecoveryConfig struct {
 	// RelaunchReadyURL: e.g., "http://127.0.0.1:7701/ready". Harness polls
 	// this at 250ms intervals until 200 or RelaunchTimeout.
 	RelaunchReadyURL string
+
+	// FirstLaunchReadyURL + FirstLaunchOnReady: optional HTTP drive during
+	// phase 1. Polled at 250ms until 200; OnReady fires once. Use this
+	// to drive a POST /permissions/decisions (or similar) that is expected
+	// to trigger the configured Marker. If these are nil, phase 1 passively
+	// waits for the marker (appropriate when boot itself emits it).
+	FirstLaunchReadyURL string
+	FirstLaunchOnReady  func(ctx context.Context) error
 }
 
 // CrashRecoveryResult records what happened across both phases.
@@ -99,7 +107,8 @@ func RunCrashRecovery(ctx context.Context, cfg CrashRecoveryConfig, probe func(c
 		cfg.RelaunchTimeout = 20 * time.Second
 	}
 
-	// Phase 1: launch + kill at marker.
+	// Phase 1: launch + kill at marker. Optionally drive HTTP once /ready
+	// comes up (FirstLaunchReadyURL + FirstLaunchOnReady).
 	r.FirstLaunch = SpawnUntilMarker(ctx, KillAtMarkerConfig{
 		Config: Config{
 			Bin:        cfg.Bin,
@@ -110,6 +119,8 @@ func RunCrashRecovery(ctx context.Context, cfg CrashRecoveryConfig, probe func(c
 		},
 		Marker:       cfg.Marker,
 		PreKillDelay: cfg.PreKillDelay,
+		ReadyURL:     cfg.FirstLaunchReadyURL,
+		OnReady:      cfg.FirstLaunchOnReady,
 	})
 	if !r.FirstLaunch.MarkerSeen {
 		r.ProbeMsg = fmt.Sprintf("first launch never emitted marker %s (TimedOut=%v Exited=%v ExitCode=%d) — impl likely lacks RUNNER_CRASH_TEST_MARKERS support or the code path was not exercised. Probe skipped.",
