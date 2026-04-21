@@ -24,9 +24,9 @@ type Config struct {
 }
 
 // DefaultMilestonesInScope is the scope applied when Config.MilestonesInScope
-// is nil. M1 + M2 are active; M3+ deferred.
+// is nil. M1 + M2 + M3 are active; M4/M5 deferred.
 func DefaultMilestonesInScope() map[string]struct{} {
-	return map[string]struct{}{"": {}, "M1": {}, "M2": {}}
+	return map[string]struct{}{"": {}, "M1": {}, "M2": {}, "M3": {}}
 }
 
 func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {

@@ -77,6 +77,15 @@ const (
 	AuditSinkEventsResponseSchema = "schemas/audit-sink-events-response.schema.json"
 	SessionSchema                 = "schemas/session.schema.json"
 
+	// L-33 / L-34 — M3 observability schemas.
+	MemoryStateResponseSchema      = "schemas/memory-state-response.schema.json"
+	BudgetProjectionResponseSchema = "schemas/budget-projection-response.schema.json"
+	ToolsRegisteredResponseSchema  = "schemas/tools-registered-response.schema.json"
+	EventsRecentResponseSchema     = "schemas/events-recent-response.schema.json"
+
+	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
+	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
+
 	// L-30: v1.1 drift-pair card. Byte-identical to conformance-card
 	// except version is "1.1.0". Enables SV-SESS-09 two-fixture swap
 	// without validator-side card mutation (which would trip impl's

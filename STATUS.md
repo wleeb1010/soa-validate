@@ -648,6 +648,77 @@ Impl shipped L-29 boot-scan + resumeSession wire-up. Validator-side changes need
 
 ---
 
+## 2026-04-22 (M3 Week 1 — V-1 through V-5 landed; scaffold-SKIP baseline)
+
+M3 kickoff per docs/plans/m3.md rev 2 (pin `5e97277`). Five validator-side tasks shipped in parallel with impl's T-0/T-1/T-2.
+
+### V-1 Pin-bump to `5e97277` (L-34 M3 sibling-plan resolution)
+
+- `spec_commit_sha = 5e9727782dcbb5b8c93cd260718517271eafd756` (via `git rev-parse 5e97277`, per plan F-05 anti-placeholder guardrail)
+- `spec_manifest_sha256 = d211c3c94436fb43afc5c616284f35b6993d2fdfb9bcd45af09a8696aef3103e`
+- Adopts §8.3.1 MemoryDegraded clarification (stop_reason on SessionEnd, not a bare event type), §11.3.1 dynamic-tool-add hook, memory-mcp-mock fixture, 4 new observability endpoints + schemas, SV-CLUS M3→M4 retag, SV-GOV-10/12 M3→M5 retag.
+- Must-map count: 223 → 230 (+7 for the M3 additions).
+- `internal/musmap/loader_test.go` expected-count updated 223 → 230.
+- **`DefaultMilestonesInScope()` expanded from `{M1,M2}` to `{M1,M2,M3}`** — M3 tests now invoked.
+
+### V-2 Schema registry — 4 new M3 schemas
+
+Added to `internal/specvec/specvec.go`:
+- `MemoryStateResponseSchema`, `BudgetProjectionResponseSchema`, `ToolsRegisteredResponseSchema`, `EventsRecentResponseSchema`
+- Also: `MemoryMCPMockDir = test-vectors/memory-mcp-mock` (L-34 fixture path).
+
+### V-3 Wall-clock baseline
+
+Measured the current M2 suite (32 test IDs, Windows runner + subprocess tests) against the running impl on `:7700`. Result: **20 seconds wall-clock**.
+
+- Plan projection: 162 tests / 32 × 20s ≈ **~102s (~1.7min)**.
+- Plan budget: ≤5min Linux / ≤8min Windows. **Comfortably under** — no need to raise the budget to spec session.
+
+### V-4 SV-MEM + SV-MEM-STATE handlers (10 tests)
+
+- `handleSVMEM01..08` — scaffold with §-precise diagnostics naming the impl task each blocks on.
+- `handleSVMEMSTATE01` — live probe on `GET /memory/state` with schema validation (SKIPs on 404 with "blocks on impl T-1").
+- `handleSVMEMSTATE02` — byte-identity predicate excl `generated_at` (same pattern as SV-SESS-STATE-01).
+- `SV-MEM-08` is a **pre-budgeted skip** per plan.
+
+### V-5 SV-STR + SV-STR-OBS handlers (14 tests)
+
+- `handleSVSTR01..11 + 15 + 16` — stream-pending scaffolds; each diagnostic cites the specific §14 assertion it covers.
+- `handleSVSTROBS01` — live probe on `GET /events/recent` with schema validation.
+- **HR-17 deferred to V-14** (per plan) — uses `SessionEnd{stop_reason:MemoryDegraded}` per §8.3.1; NOT a bare `MemoryDegraded` event type.
+- `SV-STR-04` is a **pre-budgeted skip** per plan (§14.3 SSE terminal-event semantics needs M4).
+
+### Scoreboard (pin `5e97277`, 56 test IDs) — **31 pass / 0 fail / 25 skip / 0 error**
+
+- **22 M2 regressions hold** (all M2 greens kept).
+- **M1 greens hold** (13 of 13).
+- **HR-02 now passes** — must-map marks it M3; handler was wired from M1 era; with M3 in-scope it fires + returns pass.
+- **24 M3 handlers registered; all SKIP** with precise diagnostics.
+- **Pre-budgeted skips observed:** SV-STR-04, SV-MEM-08 (2 of the 4 plan-budgeted — SV-GOV-09 + HR-13 not yet registered).
+- **Real slips: 0.**
+
+### Machine-readable block (per plan S-4)
+
+```
+<!-- machine-readable -->
+{
+  "week": 1,
+  "v_tasks_landed": ["V-1","V-2","V-3","V-4","V-5"],
+  "scoreboard": {"pass": 31, "skip": 25, "fail": 0, "error": 0},
+  "pre_budgeted_skip_count": 2,
+  "real_slip_count": 0,
+  "spec_pin": "5e97277",
+  "m3_handlers_wired": 24,
+  "m3_target_live_greens": 120,
+  "m3_skip_budget": 19
+}
+<!-- /machine-readable -->
+```
+
+**Handoff:** impl signals T-0/T-1 → SV-MEM-STATE-01/02 auto-flip PASS. T-2 → SV-STR-OBS-01 auto-flips. Individual SV-MEM-01..07 and SV-STR-01..11/15/16 flip as impl wires §8 memory tools + §14.1 per-type payload schema.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**

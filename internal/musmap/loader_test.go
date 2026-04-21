@@ -31,10 +31,10 @@ func TestLoadSV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSV: %v", err)
 	}
-	// Catalog growth: 213 → 221 at spec commit 8b35375 (L-13 must-map integration);
-	// 221 → 222 → 223 at L-27 + L-28 (M2 additions: SV-AUDIT-SINK-EVENTS-01 added, 6 SV-SESS tagged M2).
-	if len(m.Tests) != 223 {
-		t.Errorf("expected 223 tests, got %d", len(m.Tests))
+	// Catalog growth: 213 → 221 at L-13 integration; 221 → 223 at L-27/L-28 (M2);
+	// 223 → 230 at L-33/L-34 M3 kickoff (Memory/Budget/Registry + 4 new obs endpoints).
+	if len(m.Tests) != 230 {
+		t.Errorf("expected 230 tests, got %d", len(m.Tests))
 	}
 	for _, id := range []string{"HR-01", "HR-02", "HR-12", "HR-14", "SV-SIGN-01", "SV-CARD-01", "SV-BOOT-01", "SV-PERM-01"} {
 		if _, ok := m.Tests[id]; !ok {

@@ -87,6 +87,34 @@ var Handlers = map[string]Handler{
 	// M2 Week 3 baseline (V2-09a) — /state schema + session-file refusal.
 	"SV-SESS-01": handleSVSESS01,
 	"SV-SESS-02": handleSVSESS02,
+
+	// M3 Week 1 — Memory (§8) + StreamEvent (§14) observability scaffolds.
+	// All 24 SKIP until impl T-0/T-1/T-2 ship. (V-4 + V-5.)
+	"SV-MEM-01":       handleSVMEM01,
+	"SV-MEM-02":       handleSVMEM02,
+	"SV-MEM-03":       handleSVMEM03,
+	"SV-MEM-04":       handleSVMEM04,
+	"SV-MEM-05":       handleSVMEM05,
+	"SV-MEM-06":       handleSVMEM06,
+	"SV-MEM-07":       handleSVMEM07,
+	"SV-MEM-08":       handleSVMEM08,
+	"SV-MEM-STATE-01": handleSVMEMSTATE01,
+	"SV-MEM-STATE-02": handleSVMEMSTATE02,
+
+	"SV-STR-01":     handleSVSTR01,
+	"SV-STR-02":     handleSVSTR02,
+	"SV-STR-03":     handleSVSTR03,
+	"SV-STR-04":     handleSVSTR04,
+	"SV-STR-05":     handleSVSTR05,
+	"SV-STR-06":     handleSVSTR06,
+	"SV-STR-07":     handleSVSTR07,
+	"SV-STR-08":     handleSVSTR08,
+	"SV-STR-09":     handleSVSTR09,
+	"SV-STR-10":     handleSVSTR10,
+	"SV-STR-11":     handleSVSTR11,
+	"SV-STR-15":     handleSVSTR15,
+	"SV-STR-16":     handleSVSTR16,
+	"SV-STR-OBS-01": handleSVSTROBS01,
 }
 
 func stub(reason string) Handler {
