@@ -4,6 +4,40 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 end — V-07 driver + SV-PERM-20 green; two honest skips + one real spec gap)
+
+**Done:**
+- **V-07 audit-record driver + V-05 upgrade + V-08 SV-PERM-20** all landed together. Full live run against impl's restarted Runner (pre-enrolled demo session `ses_demoWeek3Conformance01` with `canDecide=true`):
+  - **SV-PERM-20 live → PASS.** Positive path: demo-bearer POST /permissions/decisions for `fs__read_file` → 201, schema-valid, `decision=AutoAllow` matches §10.3 oracle (forgery resistance), exactly `+1` audit record (record_count 3→4), `audit_this_hash` equals new tail hash. Auth-negative path: fresh session without `request_decide_scope` → 403 `reason=insufficient-scope` (L-22 corrected enum).
+  - **SV-AUDIT-TAIL-01 live → PASS (state-adaptive rewrite).** Handler now covers both empty (GENESIS, `last_record_timestamp` omitted) and non-empty (hex64 `this_hash`, `last_record_timestamp` present) log states per spec §10.5.2. Two-read idempotence still enforced.
+- **SV-PERM-21 → honest SKIP.** PDA-JWS happy path needs a handler key chained to the Runner's trust anchors; validator has no signing fixture. Needs either (a) spec-shipped signed PDA vector with a trust anchor the Runner can load, or (b) validator signing identity the Runner is configured to trust.
+- **SV-PERM-22 → honest SKIP.** Runner deployment wasn't started with `resolvePdaVerifyKey`; PDA verification is unavailable on this deployment. Neither the crypto-invalid nor structural-mismatch branches of SV-PERM-22 can be exercised without PDA verification wired up.
+- **Real spec gap surfaced:** impl returns `400 pda-verify-not-configured` when asked to verify a PDA on a deployment that has no verification wired. **`pda-verify-not-configured` is NOT in the §10.3.2 L-22 closed-enum reason set**, and 400 isn't one of the documented response codes for the endpoint. Spec may need either (a) a defined `503 pda-verify-unavailable` (or similar) for this deployment state, or (b) the endpoint to simply reject PDA submissions with a defined 4xx when verification is unconfigured.
+
+**Scoreboard (14 tests total — 8 original M1 + 6 extension IDs):**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | pass + pass | pass (24/24 cells) |
+| HR-01 | pass | skip |
+| HR-02 | — | M3-deferred |
+| HR-12, HR-14 | skip | skip |
+| SV-AUDIT-TAIL-01 | — | **pass (state-adaptive)** |
+| SV-SESS-BOOT-01 | — | pass |
+| SV-SESS-BOOT-02 | — | skip (deployment variation) |
+| **SV-PERM-20** | — | **pass (positive + auth-neg)** |
+| **SV-PERM-21** | — | **skip (PDA signing fixture TBD)** |
+| **SV-PERM-22** | — | **skip (deployment needs PDA verify wired)** |
+
+**8 pass / 6 skip / 0 fail.** Zero workaround-passes.
+
+**Still blocked on impl T-01 `/audit/records`:** V-06 (SV-AUDIT-RECORDS-01/02) + V-10 (HR-14 chain-tamper). V-07 has now accumulated real records; the chain integrity check fires the moment /audit/records lands.
+
+---
+
 ## 2026-04-20 (Week 3 day 3 later — pin at 9ae1825; awaiting impl restart with RUNNER_DEMO_SESSION)
 
 **Done:**

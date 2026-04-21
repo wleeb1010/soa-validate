@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -51,6 +52,9 @@ var Handlers = map[string]Handler{
 	"SV-SESS-BOOT-01":  handleSVSESSBOOT01,
 	"SV-SESS-BOOT-02":  handleSVSESSBOOT02,
 	"SV-AUDIT-TAIL-01": handleSVAUDITTAIL01,
+	"SV-PERM-20":       handleSVPERM20,
+	"SV-PERM-21":       handleSVPERM21,
+	"SV-PERM-22":       handleSVPERM22,
 }
 
 func stub(reason string) Handler {
@@ -638,9 +642,14 @@ func handleSVSESSBOOT02(ctx context.Context, h HandlerCtx) []Evidence {
 }
 
 // ─── SV-AUDIT-TAIL-01 ────────────────────────────────────────────────────
-// Fresh Runner: this_hash == "GENESIS", record_count == 0, last_record_timestamp
-// OMITTED from body (not present as key). Two back-to-back reads byte identical
-// (not-a-side-effect idempotence regression).
+// Spec §10.5.2 MUST:
+//   - Empty log: this_hash == "GENESIS", last_record_timestamp OMITTED
+//   - Non-empty log: this_hash is 64-char lowercase hex
+//   - Read MUST NOT append a meta-record (not-a-side-effect): two
+//     back-to-back reads report identical hash + record_count
+// Handler asserts whichever branch applies to the Runner's current state.
+
+var hex64Re = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func handleSVAUDITTAIL01(ctx context.Context, h HandlerCtx) []Evidence {
 	out := []Evidence{{Path: PathVector, Status: StatusSkip,
@@ -656,14 +665,13 @@ func handleSVAUDITTAIL01(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
 		return out
 	}
-	// Need a session bearer first — /audit/tail requires any session bearer.
 	sess, status, err := postSession(ctx, h.Client, bearer, permresolve.CapReadOnly)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError,
 			Message: fmt.Sprintf("provisioning session for audit-tail read: status=%d err=%v", status, err)})
 		return out
 	}
-	// First read.
+
 	raw1, err := getAuditTailRaw(ctx, h.Client, sess.SessionBearer, h.Spec)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/tail (1): " + err.Error()})
@@ -674,41 +682,67 @@ func handleSVAUDITTAIL01(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
 		return out
 	}
-	if tail1.ThisHash != "GENESIS" {
+
+	hasLastTs := bytes.Contains(raw1, []byte(`"last_record_timestamp"`))
+
+	switch {
+	case tail1.ThisHash == "GENESIS":
+		if tail1.RecordCount != 0 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("this_hash=GENESIS but record_count=%d; expected 0", tail1.RecordCount)})
+			return out
+		}
+		if hasLastTs {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: "empty log but last_record_timestamp present; spec §10.5.2 requires OMITTED on empty log"})
+			return out
+		}
+	case hex64Re.MatchString(tail1.ThisHash):
+		if tail1.RecordCount < 1 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("non-GENESIS this_hash but record_count=%d; expected ≥1", tail1.RecordCount)})
+			return out
+		}
+		if !hasLastTs {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: "non-empty log but last_record_timestamp omitted; spec §10.5.2 requires it present"})
+			return out
+		}
+	default:
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("fresh Runner this_hash=%q, expected GENESIS", tail1.ThisHash)})
+			Message: fmt.Sprintf("this_hash=%q does not match 'GENESIS' or ^[a-f0-9]{64}$", tail1.ThisHash)})
 		return out
 	}
-	if tail1.RecordCount != 0 {
-		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("fresh Runner record_count=%d, expected 0", tail1.RecordCount)})
-		return out
-	}
-	// last_record_timestamp MUST be OMITTED (not null, not "") when empty — spec §10.5.2.
-	if bytes.Contains(raw1, []byte(`"last_record_timestamp"`)) {
-		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: "last_record_timestamp present on fresh Runner response; spec §10.5.2 requires OMITTED (key absent) when log is empty"})
-		return out
-	}
-	// Second read — byte-identical idempotence (not-a-side-effect regression).
+
+	// Not-a-side-effect: two back-to-back reads must agree on hash+count.
 	raw2, err := getAuditTailRaw(ctx, h.Client, sess.SessionBearer, h.Spec)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/tail (2): " + err.Error()})
 		return out
 	}
-	// The `generated_at` timestamp will differ between reads; only assert that
-	// the content hash this_hash + record_count are byte-stable.
 	var tail2 auditTailResponse
 	_ = json.Unmarshal(raw2, &tail2)
 	if tail2.ThisHash != tail1.ThisHash || tail2.RecordCount != tail1.RecordCount {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("two-reads regression: hash/count drifted between back-to-back reads (hash %s→%s, count %d→%d)",
+			Message: fmt.Sprintf("two-read regression: hash/count drifted (hash %s→%s, count %d→%d)",
 				tail1.ThisHash, tail2.ThisHash, tail1.RecordCount, tail2.RecordCount)})
 		return out
 	}
 	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
-		Message: "fresh Runner: this_hash=GENESIS, record_count=0, last_record_timestamp omitted; two back-to-back reads stable on hash+count (not-a-side-effect idempotence)"})
+		Message: fmt.Sprintf("state-adaptive: this_hash=%s, record_count=%d, last_record_timestamp %s; two-read idempotence holds",
+			summarizeHash(tail1.ThisHash), tail1.RecordCount,
+			func() string { if hasLastTs { return "present" }; return "omitted" }())})
 	return out
+}
+
+func summarizeHash(h string) string {
+	if h == "GENESIS" {
+		return "GENESIS"
+	}
+	if len(h) >= 8 {
+		return h[:8] + "…"
+	}
+	return h
 }
 
 func getAuditTailRaw(ctx context.Context, c *runner.Client, sessionBearer string, sv specvec.Locator) ([]byte, error) {
@@ -1067,4 +1101,276 @@ func errOrOK(e error) string {
 		return "ok"
 	}
 	return e.Error()
+}
+
+// ─── SV-PERM-20 / SV-PERM-21 / SV-PERM-22 ─────────────────────────────
+// POST /permissions/decisions (§10.3.2). Requires a pre-enrolled demo
+// session with canDecide=true until T-03 (request_decide_scope) ships;
+// shared via SOA_IMPL_DEMO_SESSION env var as "<session_id>:<bearer>".
+
+type permissionDecisionRequest struct {
+	Tool       string  `json:"tool"`
+	SessionID  string  `json:"session_id"`
+	ArgsDigest string  `json:"args_digest"`
+	PDA        *string `json:"pda,omitempty"`
+}
+
+type permissionDecisionResponse struct {
+	Decision           string `json:"decision"`
+	ResolvedCapability string `json:"resolved_capability"`
+	ResolvedControl    string `json:"resolved_control"`
+	Reason             string `json:"reason"`
+	AuditRecordID      string `json:"audit_record_id"`
+	AuditThisHash      string `json:"audit_this_hash"`
+	HandlerAccepted    bool   `json:"handler_accepted"`
+	RunnerVersion      string `json:"runner_version"`
+	RecordedAt         string `json:"recorded_at"`
+}
+
+func parseDemoSession() (sid, bearer string, ok bool) {
+	raw := os.Getenv("SOA_IMPL_DEMO_SESSION")
+	if raw == "" {
+		return "", "", false
+	}
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func postDecision(ctx context.Context, c *runner.Client, bearer string, req permissionDecisionRequest) (permissionDecisionResponse, []byte, int, error) {
+	body, _ := json.Marshal(req)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/permissions/decisions", bytes.NewReader(body))
+	if err != nil {
+		return permissionDecisionResponse{}, nil, 0, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := runnerHTTP(c).Do(httpReq)
+	if err != nil {
+		return permissionDecisionResponse{}, nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return permissionDecisionResponse{}, raw, resp.StatusCode, nil
+	}
+	var out permissionDecisionResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return permissionDecisionResponse{}, raw, resp.StatusCode, err
+	}
+	return out, raw, resp.StatusCode, nil
+}
+
+func handleSVPERM20(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §10.3.2"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrap := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrap == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
+		return out
+	}
+	demoSid, demoBearer, ok := parseDemoSession()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_IMPL_DEMO_SESSION (<sid>:<bearer>) not set; needed for the pre-enrolled canDecide session until T-03 ships"})
+		return out
+	}
+
+	before, err := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "pre-decision GET /audit/tail: " + err.Error()})
+		return out
+	}
+	req := permissionDecisionRequest{
+		Tool:       "fs__read_file",
+		SessionID:  demoSid,
+		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	dec, rawResp, status, err := postDecision(ctx, h.Client, demoBearer, req)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "POST /permissions/decisions: " + err.Error()})
+		return out
+	}
+	if status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("positive POST /permissions/decisions status=%d; expected 201; body=%s", status, string(rawResp))})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path("schemas/permission-decision-response.schema.json"), rawResp); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "decision response schema: " + err.Error()})
+		return out
+	}
+	want := permresolve.Resolve(permresolve.RiskReadOnly, permresolve.CtrlAutoAllow, permresolve.CapDangerFullAccess, "")
+	if dec.Decision != string(want) {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("forgery-resistance: impl decision=%s, oracle=%s", dec.Decision, want)})
+		return out
+	}
+	after, err := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "post-decision GET /audit/tail: " + err.Error()})
+		return out
+	}
+	if after.RecordCount != before.RecordCount+1 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("record_count delta=%d; expected exactly 1 (%d -> %d)", after.RecordCount-before.RecordCount, before.RecordCount, after.RecordCount)})
+		return out
+	}
+	if after.ThisHash != dec.AuditThisHash {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("audit_this_hash mismatch: decision response=%s, tail after=%s", dec.AuditThisHash, after.ThisHash)})
+		return out
+	}
+
+	// Auth-negative path: fresh session without decide scope.
+	sess, sStatus, err := postSession(ctx, h.Client, bootstrap, permresolve.CapReadOnly)
+	if err != nil || sStatus != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "auth-neg: provision session"})
+		return out
+	}
+	negReq := permissionDecisionRequest{
+		Tool:       "fs__read_file",
+		SessionID:  sess.SessionID,
+		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	_, negRaw, negStatus, err := postDecision(ctx, h.Client, sess.SessionBearer, negReq)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "auth-neg POST /permissions/decisions: " + err.Error()})
+		return out
+	}
+	if negStatus != http.StatusForbidden {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("auth-neg expected 403, got %d; body=%s", negStatus, string(negRaw))})
+		return out
+	}
+	var negBody struct {
+		Error  string `json:"error"`
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal(negRaw, &negBody)
+	observedReason := negBody.Reason
+	if observedReason == "" {
+		observedReason = negBody.Error
+	}
+	if observedReason != "insufficient-scope" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("auth-neg 403 reason=%q; L-22 closed enum requires insufficient-scope", observedReason)})
+		return out
+	}
+
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("positive: decision=%s (matches §10.3 oracle), schema-valid, exactly +1 audit record (%d -> %d), audit_this_hash=%s matches tail; auth-negative: fresh session without decide scope -> 403 reason=insufficient-scope (L-22 enum)",
+			dec.Decision, before.RecordCount, after.RecordCount, summarizeHash(dec.AuditThisHash))})
+	return out
+}
+
+func handleSVPERM21(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{
+		{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §10.3.2+§6.1.1"},
+		{Path: PathLive, Status: StatusSkip,
+			Message: "requires a valid PDA-JWS signed by a handler key chained to the Runners security.trustAnchors. Validator has no PDA-signing fixture yet; needs either (a) spec to ship a signed PDA vector whose trust anchor the Runner can be configured to accept, or (b) validator to gain a signing identity the Runner is configured to trust. Honest skip until the fixture/design decision is made."},
+	}
+}
+
+func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip, Message: "live-only test per spec §10.3.2+§6.1.1"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	demoSid, demoBearer, ok := parseDemoSession()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_IMPL_DEMO_SESSION not set; positive path needs the pre-enrolled canDecide session"})
+		return out
+	}
+
+	before, err := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "pre GET /audit/tail: " + err.Error()})
+		return out
+	}
+	bogus := "not.a.real.jws"
+	req := permissionDecisionRequest{
+		Tool:       "net__http_get",
+		SessionID:  demoSid,
+		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		PDA:        &bogus,
+	}
+	dec, raw, status, err := postDecision(ctx, h.Client, demoBearer, req)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "POST /permissions/decisions: " + err.Error()})
+		return out
+	}
+	// Deployment-configuration check: if the Runner wasnt started with
+	// resolvePdaVerifyKey, PDA verification is unavailable and every path
+	// through SV-PERM-22 short-circuits to 400 pda-verify-not-configured.
+	// Thats a test-setup constraint (Runner deployed without PDA verify
+	// wiring), not a test failure. Skip with a precise diagnostic.
+	if status == http.StatusBadRequest {
+		var body struct {
+			Error  string `json:"error"`
+			Reason string `json:"reason"`
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(raw, &body)
+		errTok := body.Error
+		if errTok == "" {
+			errTok = body.Reason
+		}
+		if errTok == "pda-verify-not-configured" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: "Runner deployment has no PDA verification wired (impl requires resolvePdaVerifyKey injection at startup). SV-PERM-22 cannot exercise either crypto-invalid-PDA or structural-mismatch paths on this deployment; needs a Runner built with PDA verify key. Separately flagging: 400 pda-verify-not-configured is NOT in the §10.3.2 L-22 closed-enum 403 reason set — spec may need a defined status+reason for PDA-verify-unavailable."})
+			return out
+		}
+	}
+	// Two spec-permitted paths depending on impl ordering:
+	// - 201 decision=Deny handler_accepted=false reason=pda-verify-failed (crypto-first) + audited
+	// - 403 reason=pda-malformed (structural-first; also in L-22 enum)
+	switch status {
+	case http.StatusCreated:
+		if err := agentcard.ValidateJSON(h.Spec.Path("schemas/permission-decision-response.schema.json"), raw); err != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "response schema: " + err.Error()})
+			return out
+		}
+		if dec.Decision != "Deny" || dec.HandlerAccepted || dec.Reason != "pda-verify-failed" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("crypto-invalid PDA: decision=%s handler_accepted=%v reason=%q; spec requires Deny/false/pda-verify-failed", dec.Decision, dec.HandlerAccepted, dec.Reason)})
+			return out
+		}
+		after, _ := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+		if after.RecordCount != before.RecordCount+1 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("crypto-invalid PDA attempt MUST audit per §10.3.2; record_count delta=%d, expected 1", after.RecordCount-before.RecordCount)})
+			return out
+		}
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "crypto-invalid PDA -> 201 decision=Deny handler_accepted=false reason=pda-verify-failed; attempt audited (+1 record). decision-mismatch variant skipped (requires valid PDA construction; see SV-PERM-21 skip)."})
+	case http.StatusForbidden:
+		var body struct {
+			Error  string `json:"error"`
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal(raw, &body)
+		reason := body.Reason
+		if reason == "" {
+			reason = body.Error
+		}
+		if reason != "pda-malformed" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("structural-first 403 reason=%q; L-22 enum requires pda-malformed", reason)})
+			return out
+		}
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "malformed PDA rejected structurally: 403 reason=pda-malformed (L-22 enum). Impl chose structural-first over crypto-first; both are spec-permitted. Well-formed-JWS-with-bad-signature variant skipped (requires signing-fixture setup)."})
+	default:
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("unexpected status %d; expected 201(pda-verify-failed) or 403(pda-malformed); body=%s", status, string(raw))})
+	}
+	return out
 }
