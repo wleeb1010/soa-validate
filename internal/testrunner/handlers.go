@@ -1307,27 +1307,30 @@ func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "POST /permissions/decisions: " + err.Error()})
 		return out
 	}
-	// Deployment-configuration check: if the Runner wasnt started with
-	// resolvePdaVerifyKey, PDA verification is unavailable and every path
-	// through SV-PERM-22 short-circuits to 400 pda-verify-not-configured.
-	// Thats a test-setup constraint (Runner deployed without PDA verify
-	// wiring), not a test failure. Skip with a precise diagnostic.
-	if status == http.StatusBadRequest {
+	// Spec §10.3.2 L-23 branch: Runner deployed without resolvePdaVerifyKey
+	// MUST return 503 + {error,reason}=pda-verify-unavailable. This is an
+	// ASSERTABLE spec conformance check — the endpoint's behavior under
+	// "verify unavailable" state is pinned.
+	if status == http.StatusServiceUnavailable {
 		var body struct {
 			Error  string `json:"error"`
 			Reason string `json:"reason"`
-			Detail string `json:"detail"`
 		}
 		_ = json.Unmarshal(raw, &body)
-		errTok := body.Error
-		if errTok == "" {
-			errTok = body.Reason
-		}
-		if errTok == "pda-verify-not-configured" {
-			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-				Message: "Runner deployment has no PDA verification wired (impl requires resolvePdaVerifyKey injection at startup). SV-PERM-22 cannot exercise either crypto-invalid-PDA or structural-mismatch paths on this deployment; needs a Runner built with PDA verify key. Separately flagging: 400 pda-verify-not-configured is NOT in the §10.3.2 L-22 closed-enum 403 reason set — spec may need a defined status+reason for PDA-verify-unavailable."})
+		if body.Error == "pda-verify-unavailable" && body.Reason == "pda-verify-unavailable" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "Runner without PDA verify config correctly returns 503 error=pda-verify-unavailable reason=pda-verify-unavailable per §10.3.2 L-23. crypto-invalid-PDA + structural-mismatch branches of SV-PERM-22 not exercised on this deployment (would require Runner with resolvePdaVerifyKey injection); deployment-misconfig branch asserted."})
 			return out
 		}
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("503 body error=%q reason=%q; §10.3.2 L-23 requires both to equal 'pda-verify-unavailable'", body.Error, body.Reason)})
+		return out
+	}
+	// Legacy non-conformant path — flag it rather than silently accept.
+	if status == http.StatusBadRequest {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("400 %s; §10.3.2 L-23 (pin 1971e87) requires 503 pda-verify-unavailable, not 400. Impl has not adopted the rename on this Runner.", string(raw))})
+		return out
 	}
 	// Two spec-permitted paths depending on impl ordering:
 	// - 201 decision=Deny handler_accepted=false reason=pda-verify-failed (crypto-first) + audited

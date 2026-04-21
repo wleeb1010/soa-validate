@@ -4,6 +4,40 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 end-of-day — SV-PERM-22 flipped; 9 pass / 5 skip / 0 fail)
+
+**Done:**
+- Impl shipped the L-23 binary (commit `f013434` rebuilt + restarted). Wire probe now returns `503 {"error":"pda-verify-unavailable","reason":"pda-verify-unavailable"}` — exact L-23 shape.
+- **SV-PERM-22 handler upgraded** to assert the spec §10.3.2 L-23 branch: Runner deployed without `resolvePdaVerifyKey` MUST return 503 with `error == reason == "pda-verify-unavailable"`. Any `400 pda-verify-not-configured` response is now asserted as FAIL (non-conformant against pin 1971e87).
+- **SV-PERM-22 → PASS.** Deployment-misconfig branch now carries positive live evidence. The crypto-invalid-PDA and structural-mismatch branches of SV-PERM-22 still aren't exercised on this deployment (they require PDA verification to be wired at startup) — handler makes this explicit in the passing message rather than claiming full coverage.
+
+**Scoreboard: 14 tests, 9 pass / 5 skip / 0 fail.**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | pass + pass | pass (24/24) |
+| HR-01 | pass | skip |
+| HR-02 | — | M3-deferred |
+| HR-12, HR-14 | skip | skip |
+| SV-AUDIT-TAIL-01 | — | pass |
+| SV-SESS-BOOT-01 | — | pass |
+| SV-SESS-BOOT-02 | — | skip (deployment variation) |
+| SV-PERM-20 | — | pass |
+| SV-PERM-21 | — | skip (PDA signing fixture TBD) |
+| **SV-PERM-22** | — | **pass (L-23 deployment-misconfig branch)** |
+
+**Still blocked (honest skips carrying precise diagnostics):**
+- HR-01 live — impl cold-start restart hook
+- SV-SESS-BOOT-02 live — deployment variation (Runner with default ReadOnly card)
+- SV-PERM-21 live — PDA signing fixture design (L-24 candidate)
+- HR-12, HR-14 — M1 week 5 plan items
+- V-06 (SV-AUDIT-RECORDS-01/02) + V-10 (HR-14 chain-tamper) — T-01 `/audit/records` pending
+
+---
+
 ## 2026-04-20 (Week 3 day 3 — pin at 1971e87; SV-PERM-22 spec gap closed at root, awaiting impl adoption)
 
 **Done:**
