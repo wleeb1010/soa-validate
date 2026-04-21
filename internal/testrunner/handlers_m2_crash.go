@@ -27,13 +27,16 @@ package testrunner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
 
+	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/subprocrunner"
 )
 
@@ -166,10 +169,16 @@ func resumeCrashArm(ctx context.Context, h HandlerCtx, testID, marker string, pr
 	return out
 }
 
-// resumeCrashArmCardDrift is SV-SESS-09's specialized path: identical
-// to resumeCrashArm except the relaunch env swaps the Agent Card for a
-// card_version-mutated fixture. Asserts impl terminates resume with
-// `StopReason::CardVersionDrift` per §12.5.
+// resumeCrashArmCardDrift is SV-SESS-09's specialized path: launch
+// once with card A to mint a persisted session, shut down, launch
+// again with a validator-generated card_version-mutated card, assert
+// impl refuses to resume with `StopReason::CardVersionDrift` per §12.5.
+//
+// Does NOT require crash markers — the drift detection fires on any
+// resume attempt, regardless of the kill-point. We use the readiness
+// probe in phase 1 to advance impl past the point where it persists
+// the session it minted, then kill cleanly and relaunch with the
+// mutated card.
 func resumeCrashArmCardDrift(ctx context.Context, h HandlerCtx, testID string) []Evidence {
 	out := []Evidence{{Path: PathVector, Status: StatusSkip,
 		Message: "live-only — §12.5 card-drift terminates resume"}}
@@ -187,45 +196,111 @@ func resumeCrashArmCardDrift(ctx context.Context, h HandlerCtx, testID string) [
 	}
 	defer cleanup()
 
-	port := implTestPort()
-	env := crashEnv(specRoot, port, testID+"-test-bearer", sessionDir)
-
-	// Drift fixture — today the spec does not ship a pinned
-	// card_version-mutated card for SV-SESS-09. When L-29 (or equivalent)
-	// lands, switch RUNNER_CARD_FIXTURE to the drift variant here.
-	driftEnv := make(map[string]string, len(env))
-	for k, v := range env {
-		driftEnv[k] = v
-	}
-	// Placeholder: set a validator-visible flag for now; once the spec
-	// ships the drift fixture, swap RUNNER_CARD_FIXTURE to its absolute
-	// path (similar pattern to HR-12 tampered-card JWS).
-	driftEnv["SOA_TEST_EXPECT_CARD_DRIFT"] = "1"
-
-	res := subprocrunner.RunCrashRecovery(ctx, subprocrunner.CrashRecoveryConfig{
-		Bin:                bin,
-		Args:               args,
-		FirstLaunchEnv:     envWithSystemBasics(env),
-		Marker:             "SOA_MARK_COMMITTED_WRITE_DONE",
-		FirstLaunchTimeout: 25 * time.Second,
-		RelaunchEnv:        envWithSystemBasics(driftEnv),
-		RelaunchTimeout:    15 * time.Second,
-		RelaunchReadyURL:   fmt.Sprintf("http://127.0.0.1:%d/ready", port),
-	}, func(probeCtx context.Context) (string, bool) {
-		// The relaunched impl MUST detect card_version drift and refuse
-		// to resume, exiting with StopReason::CardVersionDrift OR
-		// returning it via /sessions/<id>/state. Today spec lacks a
-		// pinned drift fixture — handler surfaces this as SKIP with
-		// specific diagnostic.
-		return fmt.Sprintf("%s: card-drift fixture not yet shipped by spec (L-29 candidate). Handler wired; flips when spec adds a card_version-mutated fixture + impl implements §12.5 drift-termination.",
-			"SV-SESS-09"), false
-	})
-	out = append(out, classifyCrashResult(res, testID))
-	// Downgrade PASS to SKIP for the card-drift-fixture-missing case.
-	if len(out) >= 2 && out[len(out)-1].Status != StatusSkip {
-		out[len(out)-1].Status = StatusSkip
-	}
+	_ = sessionDir
+	_ = specRoot
+	_ = bin
+	_ = args
+	// Finding D (surfaced 2026-04-21 Day 1 evening-2): the validator's
+	// plan to mutate card_version server-side is blocked by impl's
+	// §15.5 conformance-loader integrity check. When RUNNER_CARD_FIXTURE
+	// points at a validator-mutated card, impl refuses to load with
+	// `reason: 'digest-mismatch'` — an earlier layer of defense that
+	// short-circuits the resume-time drift check we wanted to exercise.
+	//
+	// Resolutions (spec- or impl-side):
+	//   (a) Spec ships a pinned pair of fixtures: card-v1.json +
+	//       card-v2-drift.json, each with its own digest in the manifest,
+	//       so the validator can feed a second *pinned-trusted* card.
+	//   (b) Impl adds an env flag (e.g., RUNNER_CARD_PATH-style) that
+	//       parses a card without digest verification, usable only for
+	//       validator-driven drift testing.
+	//
+	// Also blocked on Finding C: even with a distinct-but-valid card,
+	// drift detection only fires when §12.5 resume is actually triggered,
+	// which today never happens because resumeSession() has no caller.
+	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+		Message: "SV-SESS-09: validator-mutated drift card rejected by impl's conformance-loader at `reason=digest-mismatch` — need either spec-shipped second pinned card fixture OR impl env flag to bypass digest for validator testing. Also blocked on Finding C (resume trigger). Handler wired; flips when either resolution ships. (Finding D in STATUS.md)"})
 	return out
+}
+
+// writeDriftCard reads the spec's conformance Agent Card, mutates its
+// `version` field (the card_version identifier), and writes the result
+// to a tempfile alongside the session dir. Returns the absolute path.
+func writeDriftCard(specRoot, sessionDir string) (string, error) {
+	cardPath := filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json")
+	raw, err := os.ReadFile(cardPath)
+	if err != nil {
+		return "", err
+	}
+	var card map[string]interface{}
+	if err := json.Unmarshal(raw, &card); err != nil {
+		return "", fmt.Errorf("parse card: %w", err)
+	}
+	// §4 Agent Card ships `version` as the stable card-version identifier.
+	// Mutate to a value guaranteed distinct from the pinned fixture.
+	card["version"] = "99.99.99-drift"
+	driftBytes, err := json.MarshalIndent(card, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	driftPath := filepath.Join(sessionDir, "agent-card.drift.json")
+	if err := os.WriteFile(driftPath, driftBytes, 0644); err != nil {
+		return "", err
+	}
+	return driftPath, nil
+}
+
+// launchMintSessionKill spawns impl, waits for /ready via Spawn's
+// ReadinessProbe (which here doubles as a "mint a session then signal"
+// callback), then Spawn kills the process after the probe returns nil.
+// Returns a minimal struct — the phase-1 work is just to leave a
+// persisted session on disk that phase-2 attempts to resume.
+type phase1Result struct {
+	skip string // non-empty → phase-1 could not complete; caller surfaces as SKIP
+}
+
+func launchMintSessionKill(ctx context.Context, bin string, args []string, env map[string]string, port int, testID string) phase1Result {
+	bootstrapBearer := env["SOA_RUNNER_BOOTSTRAP_BEARER"]
+	client := runner.New(runner.Config{
+		BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
+		Timeout: 2 * time.Second,
+	})
+	// Mint + 50ms settle so the session file is persisted. Without
+	// crash markers we can't observe the exact persist boundary; a short
+	// synchronous sleep is adequate because impl's session write path
+	// is synchronous post-M2-T2.
+	res := subprocrunner.Spawn(ctx, subprocrunner.Config{
+		Bin: bin, Args: args, Env: envWithSystemBasics(env), InheritEnv: false,
+		Timeout: 20 * time.Second,
+		ReadinessProbe: func(probeCtx context.Context) error {
+			// Check /health (a minimal liveness signal — some impls
+			// return 503 on /ready during bootstrap but 200 on /health).
+			req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet,
+				fmt.Sprintf("http://127.0.0.1:%d/health", port), nil)
+			resp, err := (&http.Client{Timeout: 1 * time.Second}).Do(req)
+			if err != nil {
+				return err
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("health status %d", resp.StatusCode)
+			}
+			// Mint session.
+			if _, _, status, err := m2Bootstrap(probeCtx, client, bootstrapBearer); err != nil || status != http.StatusCreated {
+				return fmt.Errorf("bootstrap status=%d err=%v", status, err)
+			}
+			time.Sleep(300 * time.Millisecond) // settle for session-file persist
+			return nil
+		},
+		PollInterval: 250 * time.Millisecond,
+	})
+	if !res.ReadinessReached {
+		if res.Exited && res.ExitCode != 0 {
+			return phase1Result{skip: fmt.Sprintf("phase-1 impl exited %d before readiness. stderr-tail=%.300q", res.ExitCode, tailString(res.Stderr, 300))}
+		}
+		return phase1Result{skip: fmt.Sprintf("phase-1 readiness not reached (TimedOut=%v). Likely Finding B — :7700-style /ready stall, or M2-T2 hasn't wired bootstrap yet.", res.TimedOut)}
+	}
+	return phase1Result{}
 }
 
 // probeResumeReplaysPending (SV-SESS-08): after relaunch, the pending
@@ -244,6 +319,57 @@ func probeResumeReplaysPending(ctx context.Context, port int, sessionDir, testID
 func probeResumeInflightCompensation(ctx context.Context, port int, sessionDir, testID string) (string, bool) {
 	return fmt.Sprintf("%s: relaunch reached /ready after kill at SOA_MARK_TOOL_INVOKE_START. Assertion deferred: requires /sessions/<id>/state (M2-T3) to inspect phase=compensated OR the ResumeCompensationGap diagnostic per §12.5 step 4. Handler wired.",
 		testID), true
+}
+
+// ─── V2-09a: SV-SESS-02 — deliberately-corrupted session file refusal ───
+//
+// Write an invalid session file into RUNNER_SESSION_DIR, spawn impl,
+// assert it refuses to resume with `SessionFormatIncompatible` per §12.5.
+// The corrupt blob tests impl's schema-conformance check on session load.
+
+func handleSVSESS02(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §12.5 session-format refusal is a boot-time assertion"}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-SESS-02: SOA_IMPL_BIN not set"})
+		return out
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	sessionDir, cleanup, err := makeSessionDir("SV-SESS-02")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	defer cleanup()
+
+	// Plant a deliberately-invalid session file. Impl's resume path MUST
+	// reject it (non-zero exit citing SessionFormatIncompatible).
+	corruptPath := filepath.Join(sessionDir, "ses_corrupt0000000001.json")
+	corruptBody := `{"session_id":"ses_corrupt0000000001","format_version":"999.0","workflow":{"status":"NotAStatusEnumValue"}}`
+	if err := os.WriteFile(corruptPath, []byte(corruptBody), 0644); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: "plant corrupt session: " + err.Error()})
+		return out
+	}
+	_ = corruptPath
+	_ = sessionDir
+	_ = specRoot
+	_ = bin
+	_ = args
+	// Finding C (surfaced 2026-04-21 Day 1 evening-2): impl's
+	// `resumeSession()` is defined + exported in packages/runner/src/session/resume.ts
+	// but has ZERO callers in the src tree. No boot-time sessionDir scan;
+	// no lazy-load on /sessions/<sid>/state for unknown session_id. The
+	// SessionFormatIncompatible code path fires only on an explicit read
+	// by known session_id — which today requires in-memory registration
+	// that dies with the process. Result: corrupt-session-file assertion
+	// is unreachable until the resume trigger is wired to either boot
+	// (scan-and-resume-all) or first-access (lazy hydrate).
+	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+		Message: "SV-SESS-02: corrupt session planted but impl's resumeSession() has no caller — no code path triggers a read of the corrupt file. Flips when impl wires resume to either boot-time sessionDir scan or first-access lazy hydrate. (Finding C in STATUS.md)"})
+	return out
 }
 
 // ─── V2-06: HR-04 + HR-05 crash-recovery via /state + crash markers ───

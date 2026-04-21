@@ -83,6 +83,10 @@ var Handlers = map[string]Handler{
 	"HR-05":      handleHR05,
 	"SV-SESS-03": handleSVSESS03,
 	"SV-SESS-04": handleSVSESS04,
+
+	// M2 Week 3 baseline (V2-09a) — /state schema + session-file refusal.
+	"SV-SESS-01": handleSVSESS01,
+	"SV-SESS-02": handleSVSESS02,
 }
 
 func stub(reason string) Handler {

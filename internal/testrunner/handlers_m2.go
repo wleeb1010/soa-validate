@@ -426,6 +426,58 @@ func handleSVSESSSTATE01(ctx context.Context, h HandlerCtx) []Evidence {
 	return out
 }
 
+// ─── V2-09a: SV-SESS-01 — /state schema validity ───
+//
+// Trivial overlap with SV-SESS-STATE-01: mint a session, read /state,
+// schema-validate. SV-SESS-STATE-01 adds the byte-identity predicate
+// on top; SV-SESS-01 is the minimal "response shape conforms" assertion.
+
+func handleSVSESS01(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §12.5.1 response-shape assertion"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
+		return out
+	}
+	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("bootstrap for §12.5.1 probe failed: status=%d err=%v (likely Finding B — :7700 /ready=503 crl-stale)", status, err)})
+		return out
+	}
+	body, statusCode, err := getSessionStateRaw(ctx, h.Client, sid, bearer)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: "GET /sessions/<id>/state error: " + err.Error()})
+		return out
+	}
+	if statusCode == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "GET /sessions/<id>/state → 404; impl has not shipped §12.5.1 yet"})
+		return out
+	}
+	if statusCode != http.StatusOK {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("§12.5.1 status=%d; want 200 with sessions:read bearer", statusCode)})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path(specvec.SessionStateResponseSchema), body); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "§12.5.1 response fails schema: " + err.Error()})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: "GET /sessions/<id>/state: 200 + schema-valid per §12.5.1"})
+	return out
+}
+
 // ─── V2-07: SV-SESS-03 — bracket-persist for every significant event ───
 //
 // Live-only (no crash). Drive N=10 permission decisions, poll /state

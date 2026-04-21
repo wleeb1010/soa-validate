@@ -115,6 +115,67 @@ Ran `/tmp/soa-validate --profile=core` against live impl on `127.0.0.1:7700` (pi
 
 ---
 
+## 2026-04-21 (Day 1 evening-2 — post-M2-T2 run; +2 M2 greens; two new findings)
+
+Impl shipped M2-T2 (resume algorithm) + periodic CRL refresh. I registered SV-SESS-01 + SV-SESS-02 + refactored SV-SESS-09 (first attempt at card-drift without markers), re-ran the suite.
+
+### Scoreboard (pin `507eeb1`, live :7700 + SOA_IMPL_BIN)
+
+**32 test IDs registered. 9 pass / 2 fail / 18 skip / 3 error.**
+
+| Test | Status | Note |
+|---|---|---|
+| SV-CARD-01 / SV-SIGN-01 / HR-01 / HR-12 / SV-SESS-BOOT-02 | pass | M1 regression green (subprocess path unaffected by :7700 crl-stale) |
+| **SV-SESS-05 / SV-SESS-11 / SV-PERM-19 ✨ / SV-AUDIT-SINK-EVENTS-01 ✨** | **pass** | **4 M2 greens — +2 from this morning** |
+| HR-02 | skip | M3-deferred |
+| HR-04, HR-05, SV-SESS-03, SV-SESS-04, SV-SESS-06..10 | skip | scaffolded; pending crash markers + resume trigger |
+| SV-SESS-01, SV-SESS-STATE-01 | skip | blocked on Finding B |
+| SV-SESS-02 | skip | blocked on **Finding C** (see below) |
+| SV-SESS-09 | skip | blocked on **Finding D** (see below) |
+| HR-14 / SV-AUDIT-TAIL-01 / SV-AUDIT-RECORDS-01/02 / SV-PERM-22 / SV-SESS-BOOT-01 / SV-PERM-20 / SV-PERM-21 / SV-BOOT-01 / SV-PERM-01 | fail/error/skip | all cascade from Finding B — live :7700 stuck at /ready=503 reason=crl-stale |
+
+### Finding B (update): :7700 still /ready=503 crl-stale
+
+Impl merged the periodic CRL refresh but this running :7700 instance was started before the fix. Its CRL is still stale. Needs a **restart of the :7700 process** to pick up the refresh-timer code. Not a code problem — just a stale-process condition. Once restarted, 5 M1 tests + SV-SESS-01 + SV-SESS-STATE-01 flip.
+
+### Finding C — `resumeSession()` defined but never called
+
+**The §12.5 resume algorithm's entry point has zero callers in the impl source tree.**
+
+- `packages/runner/src/session/resume.ts` exports `resumeSession(persister, session_id, ctx)`.
+- `grep -rn "resumeSession" packages/runner/src/ packages/core/src/` → only the `export` and the `index.ts` re-export. No production callers.
+- Impl's boot does not scan `RUNNER_SESSION_DIR` (`grep readdir` in runner/src/ returns only an unrelated audit/sink.ts hit).
+- `/sessions/<sid>/state` returns `404 unknown-session` for any session_id not already in the in-memory `sessionStore`; there's no lazy-hydrate-from-disk path.
+- Net effect: the resume algorithm can be unit-tested but cannot fire under any HTTP request or process restart today.
+
+**Blocks:** HR-04, HR-05, SV-SESS-02, SV-SESS-04, SV-SESS-08, SV-SESS-09, SV-SESS-10 — every assertion that depends on "impl reads a persisted session from disk and routes through §12.5."
+
+**Resolution (impl-side):** wire `resumeSession` to either:
+- (a) boot-time `fsp.readdir(sessionDir)` → register each valid session in `sessionStore` (the natural reading of §12.5 "on process restart"), OR
+- (b) lazy-hydrate in `/sessions/<sid>/state` when `!sessionStore.exists(sessionId)` — try disk, register if valid, then serve.
+
+Either unblocks all the resume-dependent M2 IDs.
+
+### Finding D — Card-drift test blocked by conformance-loader digest check
+
+SV-SESS-09 wants to launch impl with a `card_version`-mutated Agent Card and assert impl refuses to resume with `StopReason::CardVersionDrift`. My first attempt was a validator-side mutation of the conformance card. Impl's `loadConformanceCard` verifies the card's digest against a pinned value and refuses with `reason: 'digest-mismatch'` — an earlier defense that short-circuits the resume-time drift check.
+
+This is a correct behavior (the fixture-digest check is §15.5-adjacent integrity — important), but it prevents the validator from exercising §12.5 drift detection with validator-only tooling.
+
+**Resolutions (pick one):**
+- (a) **Spec** ships a pinned pair: `test-vectors/conformance-card/agent-card.json` (card A, version "1.0.0") + `test-vectors/conformance-card-drift/agent-card.json` (card B, version "1.0.1"), each with its own digest entry in MANIFEST. Validator feeds A in phase 1, B in phase 2.
+- (b) **Impl** adds an opt-out env (e.g., `RUNNER_SKIP_CARD_FIXTURE_DIGEST_CHECK=1`) — validator-only, unsafe for production. Documents in §15.5 as a test-only hatch.
+
+Also gated on Finding C — even with a distinct-but-digest-valid card, drift detection only fires if §12.5 resume is actually called.
+
+### Net Day 1 close
+
+- **14 M2 test IDs wired + 4 live-green** (was 0 live yesterday morning).
+- **Findings A, B, C, D surfaced** — all spec- or impl-side. Validator holds no workarounds.
+- Expected next delta once impl lands: (1) :7700 restart → +2 greens (SV-SESS-01, SV-SESS-STATE-01) + clears M1 cascade; (2) resume-trigger wiring → +5–6 greens (HR-04/05, SV-SESS-04, etc. begin probing meaningful state); (3) spec card-drift pair → +1 green (SV-SESS-09).
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
