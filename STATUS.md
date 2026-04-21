@@ -4,6 +4,30 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 end — V-03 GREEN end-to-end; 7 pass / 1 skip / 0 fail)
+
+**Done:**
+- **V-03 (24-cell SV-PERM-01 live sweep) flipped SKIP → PASS.** With the shared bootstrap bearer in the shell, ran three POST /sessions (one per activeMode — all three provisioned against the L-18 DFA conformance card), captured `/audit/tail` `this_hash=GENESIS`, ran 8 tools × 3 activeModes = 24 GET /permissions/resolve calls, every single decision matched the validator's §10.3 oracle byte-for-byte, re-captured `/audit/tail` → `this_hash=GENESIS` unchanged. **§10.5.2 not-a-side-effect MUST satisfied** across 24 queries.
+- **Fixed a validator-side bug** discovered during the run: my `resolveResponse` struct omitted the `trace` field, so my handler was marshaling the decoded struct back to JSON (losing `trace`) before schema validation — producing a spurious "missing `trace`" failure. Corrected to schema-validate the raw response bytes directly, not a lossy round-trip. Impl's response was always correct.
+
+**Final Week 3 live scoreboard:**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| **SV-PERM-01** | pass + pass | **pass** (24/24 cells, audit invariant) |
+| HR-01 | pass | skip |
+| HR-02 | pass | pass (binary) |
+| HR-12, HR-14 | skip | skip |
+
+**7 pass / 1 skip / 0 fail.** Only lingering skip is HR-01 live, which needs impl to expose a cold-start restart hook.
+
+**Queued for impl-side ship:** `POST /permissions/decisions` (T-02), `GET /audit/records` (T-01), `request_decide_scope` (T-03). When those land, V-07 / V-05 / V-06 / V-08 / V-10 become runnable.
+
+---
+
 ## 2026-04-20 (Week 3 day 3 late — pin at 8c10ce9; SV-CARD-01 live flipped; live wiring unparked; V-03 needs bearer)
 
 **Done since last push:**

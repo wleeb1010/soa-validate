@@ -382,7 +382,7 @@ func permResolveLiveCheck(ctx context.Context, h HandlerCtx) Evidence {
 	sweptCells := 0
 	for _, g := range grants {
 		for _, tool := range reg.Tools {
-			resolved, status, err := getResolve(ctx, h.Client, g.resp.SessionBearer, tool.Name, g.resp.SessionID)
+			resolved, raw, status, err := getResolve(ctx, h.Client, g.resp.SessionBearer, tool.Name, g.resp.SessionID)
 			if err != nil {
 				return Evidence{Path: PathLive, Status: StatusError,
 					Message: fmt.Sprintf("/permissions/resolve(%s,%s): %v", tool.Name, g.cap, err)}
@@ -391,8 +391,7 @@ func permResolveLiveCheck(ctx context.Context, h HandlerCtx) Evidence {
 				return Evidence{Path: PathLive, Status: StatusFail,
 					Message: fmt.Sprintf("/permissions/resolve(%s,%s) status=%d", tool.Name, g.cap, status)}
 			}
-			body, _ := json.Marshal(resolved)
-			if err := agentcard.ValidateJSON(h.Spec.Path(specvec.PermissionsResolveResponseSchema), body); err != nil {
+			if err := agentcard.ValidateJSON(h.Spec.Path(specvec.PermissionsResolveResponseSchema), raw); err != nil {
 				return Evidence{Path: PathLive, Status: StatusFail,
 					Message: fmt.Sprintf("/permissions/resolve response schema (%s,%s): %v", tool.Name, g.cap, err)}
 			}
@@ -481,26 +480,32 @@ func getAuditTail(ctx context.Context, c *runner.Client, sessionBearer string, s
 	return out, nil
 }
 
-func getResolve(ctx context.Context, c *runner.Client, sessionBearer, tool, sessionID string) (resolveResponse, int, error) {
+// getResolve returns both the parsed response AND the raw bytes. Caller
+// schema-validates the RAW bytes against permissions-resolve-response.schema.json
+// — our struct only covers fields the handler inspects (decision, reason, etc.)
+// and would lose required fields like `trace` on round-trip, producing
+// spurious schema failures on the re-encoded form.
+func getResolve(ctx context.Context, c *runner.Client, sessionBearer, tool, sessionID string) (resolveResponse, []byte, int, error) {
 	url := fmt.Sprintf("%s/permissions/resolve?tool=%s&session_id=%s", c.BaseURL(), tool, sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return resolveResponse{}, 0, err
+		return resolveResponse{}, nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+sessionBearer)
 	resp, err := runnerHTTP(c).Do(req)
 	if err != nil {
-		return resolveResponse{}, 0, err
+		return resolveResponse{}, nil, 0, err
 	}
 	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return resolveResponse{}, resp.StatusCode, nil
+		return resolveResponse{}, raw, resp.StatusCode, nil
 	}
 	var out resolveResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return resolveResponse{}, resp.StatusCode, err
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return resolveResponse{}, raw, resp.StatusCode, err
 	}
-	return out, resp.StatusCode, nil
+	return out, raw, resp.StatusCode, nil
 }
 
 // runnerHTTP extracts the underlying http.Client for manual request building.
