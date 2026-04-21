@@ -4,6 +4,27 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 — pin at 1971e87; SV-PERM-22 spec gap closed at root, awaiting impl adoption)
+
+**Done:**
+- **Pin-bumped `9ae1825 → 1971e87`** adopting **L-23 §10.3.2 pda-verify-unavailable 503 branch**. `spec_commit_sha = 1971e87d5e625cb6c9c07e8257d12ae61bee7877`, `spec_manifest_sha256 = 304b5bfe3dc8343a29702fc7c45928002fb5fd7fd80b153d47ae2b464a09b056`. Direct root-cause fix for the gap I flagged earlier today — 400 pda-verify-not-configured is now explicitly non-conformant; the correct wire shape is **503 + `{"error":"pda-verify-unavailable","reason":"pda-verify-unavailable"}`**.
+
+**SV-PERM-22 transition plan:**
+- Handler **unchanged this turn** — still recognizes current impl's 400 response as SKIP-with-diagnostic. Consistent with your "wait for impl to ship, then flip" ordering.
+- When impl ships the 400 → 503 rename + pin-bump, handler gets upgraded to assert the new shape: `503 status` + `error == "pda-verify-unavailable"` + `reason == "pda-verify-unavailable"`. SV-PERM-22 flips SKIP → PASS in a single commit.
+- Expected post-impl scoreboard: 9 pass / 5 skip / 0 fail.
+
+**Scoreboard (UNCHANGED this turn): 14 tests, 8 pass / 6 skip / 0 fail.** Zero workaround-passes.
+
+**Pending impl ships:**
+- L-23 adoption (400 pda-verify-not-configured → 503 pda-verify-unavailable) → SV-PERM-22 flips to pass
+- L-24 candidate: handler-key signing fixture → SV-PERM-21 unblocks
+- T-01 `/audit/records` → V-06 (SV-AUDIT-RECORDS-01/02) + V-10 (HR-14 chain-tamper) unblock
+
+**V-07 continues to accumulate real audit records each SV-PERM-20 run** — V-05 upgrade already fires on tail advancement (state-adaptive handler). V-06/V-10 fire the moment /audit/records ships.
+
+---
+
 ## 2026-04-20 (Week 3 day 3 end — V-07 driver + SV-PERM-20 green; two honest skips + one real spec gap)
 
 **Done:**

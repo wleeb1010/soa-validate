@@ -2,9 +2,9 @@
   "schema": "https://soa-harness.org/schemas/v1.0/pin-lock.schema.json",
   "description": "Pins this validator to a specific SOA-Harness specification commit. The must-maps, test vectors, and schemas that define 'conformant' behavior are read from the spec repo at exactly this commit. Bumping is a reviewable action; never bump silently.",
   "spec_repo": "https://github.com/wleeb1010/soa-harness-specification",
-  "spec_commit_sha": "9ae1825bf2d8f97778b193ec1607f2f26a8b336c",
+  "spec_commit_sha": "1971e87d5e625cb6c9c07e8257d12ae61bee7877",
   "spec_commit_date": "2026-04-20",
-  "spec_manifest_sha256": "0e84c2c4136da1478a5d66fe585fd0ab6d7194b79ec74c14b0d1d9821145fd3f",
+  "spec_manifest_sha256": "304b5bfe3dc8343a29702fc7c45928002fb5fd7fd80b153d47ae2b464a09b056",
   "spec_manifest_status": "placeholder",
   "pin_history": [
     {"sha": "559dec8588441bc29639190870e4541146242b90", "bumped_to": "a9a92827ec26a472fc6ead653718982710890152", "reason": "adopt JCS parity vectors (commit 2e0a3fc) + license split (commit 2a66ddf) + regenerated MANIFEST (commit a9a9282). Coordinated lockstep bump with sibling soa-harness-impl."},
@@ -19,7 +19,8 @@
     {"sha": "2eccf6e6fc4c4c55da0afdcff315f50c4f0e9f82", "bumped_to": "e7580b93e5d14911d427556b11b99f5457611188", "reason": "adopt L-10/L-11/L-12 root-cause fixes closing SV-PERM-01 live-path observability chain (commit e7580b9): §10.5.2 GET /audit/tail, §12.6 POST /sessions, test-vectors/tool-registry/ pinned fixture + 24-cell expected-decision matrix."},
     {"sha": "e7580b93e5d14911d427556b11b99f5457611188", "bumped_to": "80680cd76129f4e1d5c4ea43383aa28e0da2c9f2", "reason": "adopt rewritten-plan spec updates (commits ffe30ed + e8b4e9e + 8b35375 + 80680cd): L-13 must-map catalog integration (+5 test IDs, HR-02 M3 deferral), L-15 §10.5.3 /audit/records endpoint, L-16/L-17/L-18 conformance fixtures (HR-12 Agent Card variants, SV-BOOT-01 negative bundles, SV-PERM-01 DangerFullAccess card) — the L-18 conformance card is the root-cause fix for the Week 3 day 3 deployment gap I surfaced. L-19 §10.3.2 POST /permissions/decisions enables end-to-end audit-chain exercise. L-20 session schema sync with §12.1."},
     {"sha": "80680cd76129f4e1d5c4ea43383aa28e0da2c9f2", "bumped_to": "8c10ce9269f426396dbed07e41ac567d1a2f1813", "reason": "adopt L-21 conformance-card fixture schema conformance (commit 8c10ce9). Three fixes per my Week 3 day 3 flag: max_iterations>=1, policyEndpoint removed, SPKI placeholder valid hex64. Unblocks SV-CARD-01 live against the conformance card."},
-    {"sha": "8c10ce9269f426396dbed07e41ac567d1a2f1813", "bumped_to": "9ae1825bf2d8f97778b193ec1607f2f26a8b336c", "reason": "adopt L-22 §10.3.2 403 reason enum fix (commit 9ae1825). Error-code rename: missing-scope → insufficient-scope; closed enum {insufficient-scope, session-bearer-mismatch, pda-decision-mismatch, pda-malformed}. Validator-flagged ConfigPrecedenceViolation-vs-missing-scope disagreement resolved at the root."}
+    {"sha": "8c10ce9269f426396dbed07e41ac567d1a2f1813", "bumped_to": "9ae1825bf2d8f97778b193ec1607f2f26a8b336c", "reason": "adopt L-22 §10.3.2 403 reason enum fix (commit 9ae1825). Error-code rename: missing-scope → insufficient-scope; closed enum {insufficient-scope, session-bearer-mismatch, pda-decision-mismatch, pda-malformed}. Validator-flagged ConfigPrecedenceViolation-vs-missing-scope disagreement resolved at the root."},
+    {"sha": "9ae1825bf2d8f97778b193ec1607f2f26a8b336c", "bumped_to": "1971e87d5e625cb6c9c07e8257d12ae61bee7877", "reason": "adopt L-23 §10.3.2 pda-verify-unavailable 503 branch (commit 1971e87). Defines the response shape (503 + error/reason=pda-verify-unavailable) for a deployment without PDA verification configured. Direct root-cause fix for the spec gap I surfaced on SV-PERM-22 — 400 pda-verify-not-configured is now explicitly non-conformant."}
   ],
   "consumed_artifacts": {
     "soa-validate-must-map.json": "the 213-test catalog this validator runs",
