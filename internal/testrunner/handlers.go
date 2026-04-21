@@ -440,9 +440,19 @@ func permResolveLiveCheck(ctx context.Context, h HandlerCtx) Evidence {
 }
 
 func postSession(ctx context.Context, c *runner.Client, bootstrapBearer string, cap permresolve.Capability) (sessionBootstrapResponse, int, error) {
-	body := map[string]string{
+	return postSessionWithScope(ctx, c, bootstrapBearer, cap, false)
+}
+
+// postSessionWithScope adds the T-03 request_decide_scope flag. When true,
+// the returned bearer carries permissions:decide:<sid> in addition to the
+// always-granted stream:read + permissions:resolve + audit:read scopes.
+func postSessionWithScope(ctx context.Context, c *runner.Client, bootstrapBearer string, cap permresolve.Capability, requestDecideScope bool) (sessionBootstrapResponse, int, error) {
+	body := map[string]interface{}{
 		"requested_activeMode": string(cap),
 		"user_sub":             "soa-validate",
+	}
+	if requestDecideScope {
+		body["request_decide_scope"] = true
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(string(b)))
@@ -548,42 +558,70 @@ func handleSVSESSBOOT01(ctx context.Context, h HandlerCtx) []Evidence {
 	caps := []permresolve.Capability{
 		permresolve.CapReadOnly, permresolve.CapWorkspaceWrite, permresolve.CapDangerFullAccess,
 	}
+	// For each capability, run a request_decide_scope round-trip:
+	//   - mint session with decide=true → bearer MUST authorize
+	//     POST /permissions/decisions (observable: 201)
+	//   - mint session with decide omitted/false → bearer MUST NOT
+	//     authorize (observable: 403 reason=insufficient-scope)
+	// Confirms the scope grant is independent of capability.
 	for _, cap := range caps {
-		resp, status, err := postSession(ctx, h.Client, bearer, cap)
-		if err != nil {
-			out = append(out, Evidence{Path: PathLive, Status: StatusError,
-				Message: fmt.Sprintf("POST /sessions(%s): %v", cap, err)})
-			return out
-		}
-		if status != http.StatusCreated {
-			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-				Message: fmt.Sprintf("POST /sessions(%s) status=%d; expected 201 against DFA card", cap, status)})
-			return out
-		}
-		body, _ := json.Marshal(resp)
-		if err := agentcard.ValidateJSON(h.Spec.Path(specvec.SessionBootstrapResponseSchema), body); err != nil {
-			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-				Message: fmt.Sprintf("session-bootstrap response schema (%s): %v", cap, err)})
-			return out
-		}
-		if resp.GrantedActiveMode != string(cap) {
-			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-				Message: fmt.Sprintf("requested %s, granted %s", cap, resp.GrantedActiveMode)})
-			return out
-		}
-		if !strings.HasPrefix(resp.SessionID, "ses_") || len(resp.SessionID) < 20 {
-			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-				Message: fmt.Sprintf("session_id %q fails schema pattern ^ses_[A-Za-z0-9]{16,}$", resp.SessionID)})
-			return out
-		}
-		if len(resp.SessionBearer) < 32 {
-			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-				Message: fmt.Sprintf("session_bearer length %d < minLength 32", len(resp.SessionBearer))})
-			return out
+		for _, decide := range []bool{true, false} {
+			resp, status, err := postSessionWithScope(ctx, h.Client, bearer, cap, decide)
+			if err != nil || status != http.StatusCreated {
+				out = append(out, Evidence{Path: PathLive, Status: StatusError,
+					Message: fmt.Sprintf("POST /sessions(%s, decide=%v): status=%d err=%v", cap, decide, status, err)})
+				return out
+			}
+			body, _ := json.Marshal(resp)
+			if err := agentcard.ValidateJSON(h.Spec.Path(specvec.SessionBootstrapResponseSchema), body); err != nil {
+				out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("session-bootstrap response schema (%s, decide=%v): %v", cap, decide, err)})
+				return out
+			}
+			if resp.GrantedActiveMode != string(cap) {
+				out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("requested %s, granted %s", cap, resp.GrantedActiveMode)})
+				return out
+			}
+			if !strings.HasPrefix(resp.SessionID, "ses_") || len(resp.SessionID) < 20 {
+				out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("session_id %q fails schema pattern", resp.SessionID)})
+				return out
+			}
+			if len(resp.SessionBearer) < 32 {
+				out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("session_bearer length %d < 32", len(resp.SessionBearer))})
+				return out
+			}
+			// Round-trip: probe POST /permissions/decisions with the minted bearer.
+			req := permissionDecisionRequest{
+				Tool:       "fs__read_file",
+				SessionID:  resp.SessionID,
+				ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			}
+			_, rawProbe, sProbe, err := postDecision(ctx, h.Client, resp.SessionBearer, req)
+			if err != nil {
+				out = append(out, Evidence{Path: PathLive, Status: StatusError,
+					Message: fmt.Sprintf("round-trip POST decision(%s, decide=%v): %v", cap, decide, err)})
+				return out
+			}
+			if decide {
+				if sProbe != http.StatusCreated {
+					out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+						Message: fmt.Sprintf("decide=true bearer (%s) MUST authorize /permissions/decisions but got %d; body=%s", cap, sProbe, string(rawProbe))})
+					return out
+				}
+			} else {
+				if r := extractReason(rawProbe); sProbe != http.StatusForbidden || r != "insufficient-scope" {
+					out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+						Message: fmt.Sprintf("decide=false bearer (%s) MUST 403 insufficient-scope; got status=%d reason=%q", cap, sProbe, r)})
+					return out
+				}
+			}
 		}
 	}
 	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
-		Message: "3 sessions provisioned (RO, WW, DFA) against DFA card; all 201 bodies schema-valid; granted == requested; ids + bearers meet shape constraints"})
+		Message: "6 sessions minted (3 caps × 2 decide-scope variants); all 201 bodies schema-valid; granted == requested; ids+bearers shape OK; round-trip: decide=true bearers authorize /permissions/decisions (201), decide=false bearers refused (403 insufficient-scope) — scope grant independent of capability"})
 	return out
 }
 
@@ -663,20 +701,14 @@ func handleSVAUDITTAIL01(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: "live path skipped: SOA_IMPL_URL unset"})
 		return out
 	}
-	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
-	if bearer == "" {
+	_, sessBearer, src := auditBearer(ctx, h.Client)
+	if sessBearer == "" {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
+			Message: "no session bearer available; set SOA_RUNNER_BOOTSTRAP_BEARER (preferred) or SOA_IMPL_DEMO_SESSION"})
 		return out
 	}
-	sess, status, err := postSession(ctx, h.Client, bearer, permresolve.CapReadOnly)
-	if err != nil || status != http.StatusCreated {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError,
-			Message: fmt.Sprintf("provisioning session for audit-tail read: status=%d err=%v", status, err)})
-		return out
-	}
-
-	raw1, err := getAuditTailRaw(ctx, h.Client, sess.SessionBearer, h.Spec)
+	_ = src
+	raw1, err := getAuditTailRaw(ctx, h.Client, sessBearer, h.Spec)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/tail (1): " + err.Error()})
 		return out
@@ -719,7 +751,7 @@ func handleSVAUDITTAIL01(ctx context.Context, h HandlerCtx) []Evidence {
 	}
 
 	// Not-a-side-effect: two back-to-back reads must agree on hash+count.
-	raw2, err := getAuditTailRaw(ctx, h.Client, sess.SessionBearer, h.Spec)
+	raw2, err := getAuditTailRaw(ctx, h.Client, sessBearer, h.Spec)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/tail (2): " + err.Error()})
 		return out
@@ -1151,6 +1183,24 @@ func parseDemoSession() (sid, bearer string, ok bool) {
 	return parts[0], parts[1], true
 }
 
+// audiBearer returns a session bearer suitable for /audit/tail and
+// /audit/records reads (any session bearer carries audit:read per §12.6).
+// Tries SOA_IMPL_DEMO_SESSION first, then mints a fresh session via
+// SOA_RUNNER_BOOTSTRAP_BEARER (T-03 spec-normative path). Returns
+// ("", "", "") if neither source works — caller skips with diagnostic.
+func auditBearer(ctx context.Context, c *runner.Client) (sid, bearer, source string) {
+	if s, b, ok := parseDemoSession(); ok {
+		return s, b, "demo-session"
+	}
+	if bs := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER"); bs != "" {
+		resp, status, err := postSessionWithScope(ctx, c, bs, permresolve.CapReadOnly, false)
+		if err == nil && status == http.StatusCreated {
+			return resp.SessionID, resp.SessionBearer, "bootstrap-minted"
+		}
+	}
+	return "", "", ""
+}
+
 func postDecision(ctx context.Context, c *runner.Client, bearer string, req permissionDecisionRequest) (permissionDecisionResponse, []byte, int, error) {
 	body, _ := json.Marshal(req)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/permissions/decisions", bytes.NewReader(body))
@@ -1186,24 +1236,27 @@ func handleSVPERM20(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
 		return out
 	}
-	demoSid, demoBearer, ok := parseDemoSession()
-	if !ok {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "SOA_IMPL_DEMO_SESSION (<sid>:<bearer>) not set; needed for the pre-enrolled canDecide session until T-03 ships"})
+
+	// Positive path: mint a fresh session with request_decide_scope:true (T-03).
+	// Resolver uses the session's activeMode for capability — RO + AutoAllow
+	// tool → AutoAllow decision regardless of card cap.
+	posSess, st, err := postSessionWithScope(ctx, h.Client, bootstrap, permresolve.CapReadOnly, true)
+	if err != nil || st != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("provision positive session: status=%d err=%v", st, err)})
 		return out
 	}
-
-	before, err := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+	before, err := getAuditTail(ctx, h.Client, posSess.SessionBearer, h.Spec)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "pre-decision GET /audit/tail: " + err.Error()})
 		return out
 	}
-	req := permissionDecisionRequest{
+	posReq := permissionDecisionRequest{
 		Tool:       "fs__read_file",
-		SessionID:  demoSid,
+		SessionID:  posSess.SessionID,
 		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	dec, rawResp, status, err := postDecision(ctx, h.Client, demoBearer, req)
+	dec, rawResp, status, err := postDecision(ctx, h.Client, posSess.SessionBearer, posReq)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "POST /permissions/decisions: " + err.Error()})
 		return out
@@ -1217,13 +1270,13 @@ func handleSVPERM20(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "decision response schema: " + err.Error()})
 		return out
 	}
-	want := permresolve.Resolve(permresolve.RiskReadOnly, permresolve.CtrlAutoAllow, permresolve.CapDangerFullAccess, "")
+	want := permresolve.Resolve(permresolve.RiskReadOnly, permresolve.CtrlAutoAllow, permresolve.CapReadOnly, "")
 	if dec.Decision != string(want) {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
 			Message: fmt.Sprintf("forgery-resistance: impl decision=%s, oracle=%s", dec.Decision, want)})
 		return out
 	}
-	after, err := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+	after, err := getAuditTail(ctx, h.Client, posSess.SessionBearer, h.Spec)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "post-decision GET /audit/tail: " + err.Error()})
 		return out
@@ -1239,50 +1292,76 @@ func handleSVPERM20(ctx context.Context, h HandlerCtx) []Evidence {
 		return out
 	}
 
-	// Auth-negative #1: fresh session without decide scope → insufficient-scope.
-	sess, sStatus, err := postSession(ctx, h.Client, bootstrap, permresolve.CapReadOnly)
-	if err != nil || sStatus != http.StatusCreated {
-		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "auth-neg provision session: " + fmt.Sprintf("status=%d err=%v", sStatus, err)})
+	// Auth-negative #1: mint session WITHOUT decide scope → insufficient-scope.
+	// MUST not write an audit record.
+	noScopeSess, st1, err := postSessionWithScope(ctx, h.Client, bootstrap, permresolve.CapReadOnly, false)
+	if err != nil || st1 != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "provision no-scope session"})
+		return out
+	}
+	beforeNeg, err := getAuditTail(ctx, h.Client, posSess.SessionBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
 		return out
 	}
 	negReq1 := permissionDecisionRequest{
 		Tool:       "fs__read_file",
-		SessionID:  sess.SessionID,
+		SessionID:  noScopeSess.SessionID,
 		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	_, raw1, st1, err := postDecision(ctx, h.Client, sess.SessionBearer, negReq1)
+	_, rawN1, sN1, err := postDecision(ctx, h.Client, noScopeSess.SessionBearer, negReq1)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "neg-1 POST: " + err.Error()})
 		return out
 	}
-	if r := extractReason(raw1); st1 != http.StatusForbidden || r != "insufficient-scope" {
+	if r := extractReason(rawN1); sN1 != http.StatusForbidden || r != "insufficient-scope" {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("auth-neg insufficient-scope: status=%d reason=%q (want 403+insufficient-scope; body=%s)", st1, r, string(raw1))})
+			Message: fmt.Sprintf("insufficient-scope: status=%d reason=%q (want 403+insufficient-scope; body=%s)", sN1, r, string(rawN1))})
+		return out
+	}
+	tailN1, err := getAuditTail(ctx, h.Client, posSess.SessionBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if tailN1.RecordCount != beforeNeg.RecordCount {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("insufficient-scope MUST not audit; tail count %d → %d (Δ=%d)", beforeNeg.RecordCount, tailN1.RecordCount, tailN1.RecordCount-beforeNeg.RecordCount)})
 		return out
 	}
 
-	// Auth-negative #2: demo bearer (valid for demoSid) with a body
-	// session_id that DOES NOT match → 403 reason=session-bearer-mismatch.
-	// Use sess.SessionID (the fresh RO session) as the mismatched id.
+	// Auth-negative #2: bearer-A on session-B (both with decide scope) →
+	// session-bearer-mismatch. MUST not write an audit record.
+	mismB, stm, err := postSessionWithScope(ctx, h.Client, bootstrap, permresolve.CapReadOnly, true)
+	if err != nil || stm != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "provision mismatch session B"})
+		return out
+	}
+	beforeN2, _ := getAuditTail(ctx, h.Client, posSess.SessionBearer, h.Spec)
 	negReq2 := permissionDecisionRequest{
 		Tool:       "fs__read_file",
-		SessionID:  sess.SessionID, // different from demoSid → mismatch
+		SessionID:  mismB.SessionID, // body says B
 		ArgsDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	_ = demoSid
-	_, raw2, st2, err := postDecision(ctx, h.Client, demoBearer, negReq2)
+	_, rawN2, sN2, err := postDecision(ctx, h.Client, posSess.SessionBearer, negReq2) // bearer for posSess (≠B)
 	if err != nil {
 		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "neg-2 POST: " + err.Error()})
 		return out
 	}
-	if r := extractReason(raw2); st2 != http.StatusForbidden || r != "session-bearer-mismatch" {
+	if r := extractReason(rawN2); sN2 != http.StatusForbidden || r != "session-bearer-mismatch" {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("auth-neg session-bearer-mismatch: status=%d reason=%q (want 403+session-bearer-mismatch; body=%s)", st2, r, string(raw2))})
+			Message: fmt.Sprintf("session-bearer-mismatch: status=%d reason=%q (want 403+session-bearer-mismatch; body=%s)", sN2, r, string(rawN2))})
+		return out
+	}
+	tailN2, _ := getAuditTail(ctx, h.Client, posSess.SessionBearer, h.Spec)
+	if tailN2.RecordCount != beforeN2.RecordCount {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("session-bearer-mismatch MUST not audit; tail count %d → %d", beforeN2.RecordCount, tailN2.RecordCount)})
 		return out
 	}
 
 	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
-		Message: fmt.Sprintf("positive: decision=%s matches §10.3 oracle, schema-valid, +1 audit record (%d→%d), audit_this_hash=%s matches tail; negatives: fresh-session-without-decide-scope → 403 insufficient-scope; demo-bearer-with-wrong-session-id → 403 session-bearer-mismatch (both L-22 enum). pda-decision-mismatch variant skipped on this deployment (reaches 503 pda-verify-unavailable before mismatch logic — PDA verify unwired; see SV-PERM-22).",
+		Message: fmt.Sprintf("positive (T-03 minted bearer): decision=%s matches §10.3 oracle, schema-valid, +1 audit (%d→%d), audit_this_hash=%s matches tail; negatives: insufficient-scope (no decide on bearer) → 403 + audit unchanged; session-bearer-mismatch (bearer-A, body-session-B) → 403 + audit unchanged. RUNNER_DEMO_SESSION dependency retired. pda-decision-mismatch variant still skipped (deployment lacks PDA verify wiring; see SV-PERM-22).",
 			dec.Decision, before.RecordCount, after.RecordCount, summarizeHash(dec.AuditThisHash))})
 	return out
 }
@@ -1373,11 +1452,24 @@ func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
 		return out
 	}
-	demoSid, demoBearer, ok := parseDemoSession()
-	if !ok {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "SOA_IMPL_DEMO_SESSION not set; positive path needs the pre-enrolled canDecide session"})
-		return out
+	// SV-PERM-22 needs a session that can POST /permissions/decisions.
+	// Mint one with decide=true via bootstrap; fall back to demo session.
+	var demoSid, demoBearer string
+	if bs := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER"); bs != "" {
+		s, st, err := postSessionWithScope(ctx, h.Client, bs, permresolve.CapDangerFullAccess, true)
+		if err == nil && st == http.StatusCreated {
+			demoSid = s.SessionID
+			demoBearer = s.SessionBearer
+		}
+	}
+	if demoBearer == "" {
+		s, b, ok := parseDemoSession()
+		if !ok {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: "no decide-scope session available; set SOA_RUNNER_BOOTSTRAP_BEARER (preferred) or SOA_IMPL_DEMO_SESSION"})
+			return out
+		}
+		demoSid, demoBearer = s, b
 	}
 
 	before, err := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
@@ -1556,9 +1648,10 @@ func handleSVAUDITRECORDS01(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
 		return out
 	}
-	_, demoBearer, ok := parseDemoSession()
-	if !ok {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_DEMO_SESSION not set"})
+	_, demoBearer, _ := auditBearer(ctx, h.Client)
+	if demoBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "no session bearer available; set SOA_RUNNER_BOOTSTRAP_BEARER (preferred) or SOA_IMPL_DEMO_SESSION"})
 		return out
 	}
 	// Probe endpoint existence first.
@@ -1593,9 +1686,10 @@ func handleSVAUDITRECORDS02(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
 		return out
 	}
-	_, demoBearer, ok := parseDemoSession()
-	if !ok {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_DEMO_SESSION not set"})
+	_, demoBearer, _ := auditBearer(ctx, h.Client)
+	if demoBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "no session bearer available; set SOA_RUNNER_BOOTSTRAP_BEARER (preferred) or SOA_IMPL_DEMO_SESSION"})
 		return out
 	}
 	_, _, status, _ := getAuditRecordsPage(ctx, h.Client, demoBearer, "", 0)
@@ -1636,9 +1730,10 @@ func handleHR14(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
 		return out
 	}
-	_, demoBearer, ok := parseDemoSession()
-	if !ok {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_DEMO_SESSION not set"})
+	_, demoBearer, _ := auditBearer(ctx, h.Client)
+	if demoBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "no session bearer available; set SOA_RUNNER_BOOTSTRAP_BEARER (preferred) or SOA_IMPL_DEMO_SESSION"})
 		return out
 	}
 	_, _, status, _ := getAuditRecordsPage(ctx, h.Client, demoBearer, "", 0)

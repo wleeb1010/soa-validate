@@ -21,6 +21,45 @@ import (
 	"github.com/wleeb1010/soa-validate/internal/testrunner"
 )
 
+// resolveDriverSession picks the session credentials the V-07 driver uses.
+// Prefers a freshly-minted session (T-03 spec-normative path) when the
+// bootstrap bearer is available; falls back to SOA_IMPL_DEMO_SESSION for
+// pre-T-03 deployments. Returns (sid, bearer, err).
+func resolveDriverSession(ctx context.Context, c *runner.Client) (string, string, error) {
+	if bs := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER"); bs != "" {
+		body := []byte(`{"requested_activeMode":"ReadOnly","user_sub":"v07-driver","request_decide_scope":true}`)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", bytes.NewReader(body))
+		if err != nil {
+			return "", "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+bs)
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return "", "", err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusCreated {
+			var sb struct {
+				SessionID     string `json:"session_id"`
+				SessionBearer string `json:"session_bearer"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&sb); err != nil {
+				return "", "", fmt.Errorf("decode session bootstrap: %w", err)
+			}
+			return sb.SessionID, sb.SessionBearer, nil
+		}
+		// Bootstrap path failed (e.g., wrong bearer); fall back to demo session if present.
+	}
+	if demo := os.Getenv("SOA_IMPL_DEMO_SESSION"); demo != "" {
+		parts := strings.SplitN(demo, ":", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1], nil
+		}
+	}
+	return "", "", fmt.Errorf("no driver session source: set SOA_RUNNER_BOOTSTRAP_BEARER (preferred) or SOA_IMPL_DEMO_SESSION")
+}
+
 func driveAuditRecordsCount() int {
 	raw := os.Getenv("SOA_DRIVE_AUDIT_RECORDS")
 	if raw == "" {
@@ -33,10 +72,15 @@ func driveAuditRecordsCount() int {
 	return n
 }
 
-// driveAuditRecords POSTs n /permissions/decisions calls against the demo
-// session, cycling through tools listed in SOA_DRIVE_AUDIT_TOOLS (comma-
-// separated; defaults to fs__read_file when unset). Each accepted call
-// writes one hash-chained audit row.
+// driveAuditRecords POSTs n /permissions/decisions calls cycling through
+// tools listed in SOA_DRIVE_AUDIT_TOOLS (comma-separated; defaults to
+// fs__read_file). Each accepted call writes one hash-chained audit row.
+//
+// Session source (preferred → fallback):
+//   1. SOA_RUNNER_BOOTSTRAP_BEARER set → mint a fresh session with
+//      request_decide_scope:true (T-03; spec-normative path)
+//   2. SOA_IMPL_DEMO_SESSION set → use the pre-enrolled demo creds
+//      (legacy convenience; pre-T-03)
 //
 // Pacing & rate-limit handling:
 //   - 2.5 s default inter-request pace keeps the 30 rpm sliding window
@@ -55,15 +99,10 @@ func driveAuditRecordsCount() int {
 // Other non-201 responses (400, 401, 403, 5xx other than 503-pda) stop
 // the driver and return what was written so far + the error.
 func driveAuditRecords(ctx context.Context, c *runner.Client, n int) (driveStats, error) {
-	demo := os.Getenv("SOA_IMPL_DEMO_SESSION")
-	if demo == "" {
-		return driveStats{}, fmt.Errorf("SOA_IMPL_DEMO_SESSION not set; cannot drive records")
+	sid, bearer, err := resolveDriverSession(ctx, c)
+	if err != nil {
+		return driveStats{}, err
 	}
-	parts := strings.SplitN(demo, ":", 2)
-	if len(parts) != 2 {
-		return driveStats{}, fmt.Errorf("SOA_IMPL_DEMO_SESSION must be <sid>:<bearer>")
-	}
-	sid, bearer := parts[0], parts[1]
 	tools := []string{"fs__read_file"}
 	if raw := strings.TrimSpace(os.Getenv("SOA_DRIVE_AUDIT_TOOLS")); raw != "" {
 		tools = nil

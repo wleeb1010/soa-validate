@@ -4,6 +4,46 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 — V-08 normative path; RUNNER_DEMO_SESSION retired)
+
+**Done:**
+- Impl shipped T-03 (`request_decide_scope` on POST /sessions) + T-08 (session.schema activeMode-required pinned). Confirmed live: bootstrap-minted bearer with `request_decide_scope:true` drives `/permissions/decisions` to 201.
+- **SV-PERM-20 reworked to use bootstrap-minted sessions** (T-03 normative path) instead of `RUNNER_DEMO_SESSION`. Three assertions:
+  - **Positive**: mint session with decide=true → POST decision → 201, decision matches §10.3 oracle, schema-valid, +1 audit record, `audit_this_hash` equals new tail hash
+  - **insufficient-scope**: mint session with decide omitted/false → POST decision → 403 reason=`insufficient-scope` + **audit tail unchanged** (Δ=0)
+  - **session-bearer-mismatch**: mint two sessions (both with decide); use bearer-A on body session_id=B → 403 reason=`session-bearer-mismatch` + **audit tail unchanged**
+- **SV-SESS-BOOT-01 upgraded to round-trip** the request_decide_scope semantics across all three capabilities (RO, WW, DFA). Six sessions minted total (3 caps × 2 decide-scope variants). Each decide=true bearer MUST authorize `/permissions/decisions` (201); each decide=false bearer MUST be refused (403 insufficient-scope). Confirms scope grant is independent of capability.
+- **V-07 driver migrated** to bootstrap-mint path. New helper `resolveDriverSession` prefers minting via SOA_RUNNER_BOOTSTRAP_BEARER (T-03 normative) over the legacy `SOA_IMPL_DEMO_SESSION`. Demo session stays as a fallback for pre-T-03 deployments.
+- **Audit-bearer fallback wired** into SV-AUDIT-TAIL-01, SV-AUDIT-RECORDS-01/02, HR-14, SV-PERM-22 — new `auditBearer` helper tries demo-session first then mints via bootstrap. The full suite now runs with **only `SOA_RUNNER_BOOTSTRAP_BEARER` set** — no demo-session env var needed.
+
+**Scoreboard (16 tests, V-07 driver run, NO demo session env var):** **12 pass / 4 skip / 0 fail.**
+
+| Test | live |
+|---|---|
+| SV-CARD-01, SV-SIGN-01, SV-BOOT-01, SV-PERM-01, HR-01-vector, HR-14, SV-AUDIT-TAIL-01, SV-AUDIT-RECORDS-01, SV-AUDIT-RECORDS-02, SV-SESS-BOOT-01, SV-PERM-20, SV-PERM-22 | **pass** |
+| HR-02 | M3-deferred (must-map) |
+| HR-12 | skip (T-06 + SOA_IMPL_BIN) |
+| SV-SESS-BOOT-02 | skip (deployment variation) |
+| SV-PERM-21 | skip (PDA signing fixture / L-24) |
+
+**Run command (V-08 normative — no demo-session dependency):**
+```
+SOA_IMPL_URL=http://127.0.0.1:7700 \
+SOA_RUNNER_BOOTSTRAP_BEARER=soa-conformance-week3-test-bearer \
+SOA_DRIVE_AUDIT_RECORDS=10 \
+soa-validate --profile=core --spec-vectors=<spec>
+```
+
+**Pin stays at 1971e87** (no spec change this round — purely impl T-03/T-08 ship + validator-side adoption).
+
+**Still SKIP, each named with its exact unblocker:**
+- HR-12 → T-06 (`RUNNER_CARD_JWS`) + SOA_IMPL_BIN
+- SV-BOOT-01 negative arms → T-07 (`RUNNER_INITIAL_TRUST`) + SOA_IMPL_BIN
+- SV-SESS-BOOT-02 → Runner with default ReadOnly card (subprocess harness)
+- SV-PERM-21 → L-24 PDA signing fixture
+
+---
+
 ## 2026-04-20 (Week 3 day 3 — Medium-mode prep: driver hardening + V-09/V-12 subprocess scaffolding)
 
 **Done while impl works on T-03 + T-08:**
