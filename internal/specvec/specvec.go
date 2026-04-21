@@ -9,6 +9,8 @@ import (
 )
 
 // Locator points at a spec-repo checkout. Construct once per run.
+// The Root field is exported so subprocess-driven handlers (HR-12,
+// SV-BOOT-01 negatives) can compose absolute paths to fixtures.
 type Locator struct {
 	Root string
 }
@@ -52,6 +54,11 @@ const (
 	CRLFresh   = "test-vectors/crl/fresh.json"
 	CRLStale   = "test-vectors/crl/stale.json"
 	CRLExpired = "test-vectors/crl/expired.json"
+
+	TamperedCardJWS = "test-vectors/tampered-card/agent-card.json.tampered.jws"
+	ConformanceCard = "test-vectors/conformance-card/agent-card.json"
+
+	InitialTrustMismatchedKid = "test-vectors/initial-trust/mismatched-publisher-kid.json"
 
 	ToolRegistryJSON = "test-vectors/tool-registry/tools.json"
 

@@ -4,6 +4,51 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 close — V-09 + V-12 subprocess tests green; 13 pass / 3 skip / 0 fail)
+
+**Done:**
+- Impl shipped T-05 + T-06 + T-07 (commit `6270681`); their punch list is cleared.
+- **HR-12 (V-09) → PASS** via subprocess test. Spawns impl with `RUNNER_CARD_JWS=<spec>/test-vectors/tampered-card/agent-card.json.tampered.jws` against the conformance card; impl exits 1 with reason `x5c-missing` (spec §6.1.1 row 1 requires x5c, tampered fixture lacks it; impl's first failure point is x5c absence rather than signature-invalid — both are CardSignatureFailed-class spec failures).
+- **SV-BOOT-01 V-12 negative arms → all 3 PASS.** Subprocess-spawn impl with each pinned broken-trust fixture, assert non-zero exit + matching spec-defined reason:
+  - `expired.json` → `bootstrap-expired`
+  - `channel-mismatch.json` → `bootstrap-invalid-schema` (renamed from `bootstrap-schema-invalid` per L-22)
+  - `mismatched-publisher-kid.json` (with `RUNNER_EXPECTED_PUBLISHER_KID`=different) → `bootstrap-missing`
+
+**Validator-side bugs caught + fixed in flight (each surfaced via the subprocess machinery):**
+1. **MSYS path translation** — bash `realpath` returns `/c/Users/...` (MSYS-style); when passed to Windows Node it became `C:\c\Users\...` (malformed; module-not-found). Added `msysToWindows()` translator in `parseImplBin` for Windows host.
+2. **Fake-pass anti-pattern in V-12 aggregator** — first version returned Status=Pass on the SV-BOOT-01 evidence even when negative arms failed. Refactored `svBootNegativesEvidence` to return `(msg, ranTests, allPass)` so the caller propagates FAIL honestly. Per validator-role memory.
+3. **`extractFailureReason` token priority** — original list returned the general category (`HostHardeningInsufficient`) before reaching specific reasons (`bootstrap-expired`). Reordered: specifics first, categories last.
+4. **Bootstrap-bearer rate limit** — cumulative session-mint volume across all handlers (~17+ POST /sessions) saturates impl's 30/min per-bearer rate limit. Added Retry-After backoff to `postSessionWithScope` (single retry, sleeps Retry-After+1s).
+
+**Subprocess machinery additions:**
+- `subprocrunner.Config.InheritEnv bool` — opt-in inheritance; default false for boot-time test determinism.
+- `envWithSystemBasics()` — passes through PATH/SystemRoot/etc. without inheriting validator-specific SOA_*/RUNNER_* env vars that could interfere with spawned impl.
+- `SOA_VALIDATE_DEBUG_DIR` env var dumps captured stderr from V-12 spawns to disk for diagnosis.
+
+**Final scoreboard (16 tests):**
+
+| Test | live |
+|---|---|
+| SV-CARD-01, SV-SIGN-01, SV-BOOT-01, SV-PERM-01, HR-01-vector, **HR-12**, HR-14, SV-AUDIT-TAIL-01, SV-AUDIT-RECORDS-01, SV-AUDIT-RECORDS-02, SV-SESS-BOOT-01, SV-PERM-20, SV-PERM-22 | **pass** |
+| HR-02 | M3-deferred (must-map) |
+| SV-SESS-BOOT-02 | skip (deployment variation — needs ReadOnly-card Runner) |
+| SV-PERM-21 | skip (PDA signing fixture / L-24 candidate) |
+
+**13 pass / 3 skip / 0 fail.** Zero workaround-passes. Every skip carries an exact-unblocker diagnostic.
+
+**Run command:**
+```
+SOA_IMPL_URL=http://127.0.0.1:7700 \
+SOA_RUNNER_BOOTSTRAP_BEARER=soa-conformance-week3-test-bearer \
+SOA_IMPL_BIN="node /abs/path/to/start-runner.js" \
+SOA_DRIVE_AUDIT_RECORDS=10 \
+soa-validate --profile=core --spec-vectors=<spec>
+```
+
+**Pin stays at `1971e87`** (no spec change this round).
+
+---
+
 ## 2026-04-20 (Week 3 day 3 — V-08 normative path; RUNNER_DEMO_SESSION retired)
 
 **Done:**

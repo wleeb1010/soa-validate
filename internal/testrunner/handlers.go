@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -445,7 +447,13 @@ func postSession(ctx context.Context, c *runner.Client, bootstrapBearer string, 
 
 // postSessionWithScope adds the T-03 request_decide_scope flag. When true,
 // the returned bearer carries permissions:decide:<sid> in addition to the
-// always-granted stream:read + permissions:resolve + audit:read scopes.
+// always-granted scopes.
+//
+// Bootstrap-bearer rate limit handling: impl rate-limits POST /sessions at
+// 30/min per bootstrap bearer. The test suite cumulatively mints ~17+
+// sessions across handlers; bursts can saturate. On 429, this helper
+// reads Retry-After, sleeps secs+1, and retries (single retry — if it
+// hits 429 again the caller sees it).
 func postSessionWithScope(ctx context.Context, c *runner.Client, bootstrapBearer string, cap permresolve.Capability, requestDecideScope bool) (sessionBootstrapResponse, int, error) {
 	body := map[string]interface{}{
 		"requested_activeMode": string(cap),
@@ -455,15 +463,32 @@ func postSessionWithScope(ctx context.Context, c *runner.Client, bootstrapBearer
 		body["request_decide_scope"] = true
 	}
 	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(string(b)))
+	doOnce := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(string(b)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+		return runnerHTTP(c).Do(req)
+	}
+	resp, err := doOnce()
 	if err != nil {
 		return sessionBootstrapResponse{}, 0, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
-	resp, err := runnerHTTP(c).Do(req)
-	if err != nil {
-		return sessionBootstrapResponse{}, 0, err
+	if resp.StatusCode == http.StatusTooManyRequests {
+		retryAfter := resp.Header.Get("Retry-After")
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		secs, _ := strconv.Atoi(retryAfter)
+		if secs <= 0 {
+			secs = 5
+		}
+		time.Sleep(time.Duration(secs+1) * time.Second)
+		resp, err = doOnce()
+		if err != nil {
+			return sessionBootstrapResponse{}, 0, err
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -1128,8 +1153,21 @@ func handleSVBOOT01(ctx context.Context, h HandlerCtx) []Evidence {
 	rErr := h.Client.Ready(ctx)
 	switch {
 	case hErr == nil && rErr == nil:
-		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
-			Message: "/health + /ready both respond; positive happy-path live arm satisfied. V-12 negative-arm scaffold (subprocess-launched impl with broken trust fixtures: expired.json, channel-mismatch.json, mismatched-pub-kid.json → HostHardeningInsufficient) waits on impl T-07 (RUNNER_INITIAL_TRUST env-var support) + SOA_IMPL_BIN; subprocrunner package ready."})
+		// Positive happy-path arm satisfied. Now V-12 negatives — propagate
+		// PASS/FAIL honestly: any negative-arm failure → aggregate FAIL,
+		// not "pass + caveat in the message".
+		msg, ok, allPass := svBootNegativesEvidence(ctx, h)
+		switch {
+		case !ok:
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "/health + /ready respond (positive arm). V-12 negative arms (expired / channel-mismatch / mismatched-publisher-kid → HostHardeningInsufficient) skipped: SOA_IMPL_BIN unset. Set SOA_IMPL_BIN='node /abs/path/to/start-runner.js' to fire them."})
+		case allPass:
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "/health + /ready respond (positive arm); " + msg})
+		default:
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: "/health + /ready respond, BUT V-12 negative arms failed: " + msg})
+		}
 	case hErr != nil && rErr != nil:
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
 			Message: "neither /health nor /ready respond (impl has not shipped §5.4 probes)"})
@@ -1138,6 +1176,70 @@ func handleSVBOOT01(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: fmt.Sprintf("§5.4 probe partial: health=%v ready=%v", errOrOK(hErr), errOrOK(rErr))})
 	}
 	return out
+}
+
+// svBootNegativesEvidence runs the three pinned broken-trust fixtures
+// against subprocess-spawned impl. Returns (summary, ranTests, allPass).
+// ranTests=false when SOA_IMPL_BIN unset (skip outer-handler decides).
+func svBootNegativesEvidence(ctx context.Context, h HandlerCtx) (string, bool, bool) {
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return "", false, false
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	cards := map[string]string{
+		"expired":                  filepath.Join(specRoot, "test-vectors", "initial-trust", "expired.json"),
+		"channel-mismatch":         filepath.Join(specRoot, "test-vectors", "initial-trust", "channel-mismatch.json"),
+		"mismatched-publisher-kid": filepath.Join(specRoot, "test-vectors", "initial-trust", "mismatched-publisher-kid.json"),
+	}
+	expectedReason := map[string]string{
+		"expired":                  "bootstrap-expired",
+		"channel-mismatch":         "bootstrap-invalid-schema",
+		"mismatched-publisher-kid": "bootstrap-missing",
+	}
+	var results []string
+	allPass := true
+	for name, fixturePath := range cards {
+		env := map[string]string{
+			"RUNNER_PORT":                 strconv.Itoa(port),
+			"RUNNER_HOST":                 "127.0.0.1",
+			"RUNNER_INITIAL_TRUST":        fixturePath,
+			"RUNNER_CARD_FIXTURE":         filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+			"RUNNER_TOOLS_FIXTURE":        filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+			"RUNNER_DEMO_MODE":            "1",
+			"SOA_RUNNER_BOOTSTRAP_BEARER": "svboot01-test-bearer",
+		}
+		if name == "mismatched-publisher-kid" {
+			env["RUNNER_EXPECTED_PUBLISHER_KID"] = "soa-validator-different-from-fixture-kid"
+		}
+		res := subprocrunner.Spawn(ctx, subprocrunner.Config{
+			Bin: bin, Args: args, Env: envWithSystemBasics(env), InheritEnv: false,
+			Timeout: 12 * time.Second,
+		})
+		if !res.Exited || res.ExitCode == 0 {
+			results = append(results, fmt.Sprintf("%s: FAIL (Exited=%v ExitCode=%d)", name, res.Exited, res.ExitCode))
+			allPass = false
+			continue
+		}
+		combined := res.Stderr + "\n" + res.Stdout
+		// Write captured stderr to a debug file when SOA_VALIDATE_DEBUG_DIR is set.
+		if dbgDir := os.Getenv("SOA_VALIDATE_DEBUG_DIR"); dbgDir != "" {
+			_ = os.WriteFile(filepath.Join(dbgDir, "svboot-"+name+".stderr"), []byte(res.Stderr), 0644)
+		}
+		got := extractFailureReason(combined)
+		if got != expectedReason[name] {
+			results = append(results, fmt.Sprintf("%s: FAIL (exit=%d, stderrLen=%d, stdoutLen=%d, got reason=%s, want %s)",
+				name, res.ExitCode, len(res.Stderr), len(res.Stdout), got, expectedReason[name]))
+			allPass = false
+			continue
+		}
+		results = append(results, fmt.Sprintf("%s→%s", name, got))
+	}
+	if allPass {
+		return fmt.Sprintf("V-12 negatives passed (3 fixtures, subprocess fail-closed boots): %s", strings.Join(results, ", ")), true, true
+	}
+	return strings.Join(results, "; "), true, false
 }
 
 func errOrOK(e error) string {
@@ -1385,14 +1487,160 @@ func handleSVPERM20(ctx context.Context, h HandlerCtx) []Evidence {
 func handleHR12(ctx context.Context, h HandlerCtx) []Evidence {
 	out := []Evidence{{Path: PathVector, Status: StatusSkip,
 		Message: "live-only test per spec §15.5 (subprocess-driven boot-time tamper detection)"}}
-	bin := os.Getenv("SOA_IMPL_BIN")
-	if bin == "" {
+	bin, args, ok := parseImplBin()
+	if !ok {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "SOA_IMPL_BIN not set; HR-12 needs to subprocess-launch impl with controlled env. Set SOA_IMPL_BIN='node <path-to-start-runner.js>' (and SOA_IMPL_TEST_PORT to avoid clashing with the running impl). Full tamper assertion additionally requires impl T-06 (RUNNER_CARD_JWS env-var support)."})
+			Message: "SOA_IMPL_BIN not set. To exercise HR-12 set SOA_IMPL_BIN='node /abs/path/to/start-runner.js' (and optionally SOA_IMPL_TEST_PORT to override default 7701)."})
 		return out
 	}
-	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-		Message: "impl T-06 not yet shipped (RUNNER_CARD_JWS env-var). Subprocess harness ready (internal/subprocrunner); will switch from skip to PASS the moment T-06 lands. Happy-path regression run available — set SOA_IMPL_HR12_REGRESSION=1 to confirm impl still boots clean under default env (no tamper)."})
+	port := implTestPort()
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	env := map[string]string{
+		"RUNNER_PORT":                  strconv.Itoa(port),
+		"RUNNER_HOST":                  "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":         filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":          filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":         filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":             "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":  "hr12-test-bearer",
+		"RUNNER_CARD_JWS":              filepath.Join(specRoot, "test-vectors", "tampered-card", "agent-card.json.tampered.jws"),
+	}
+	res := subprocrunner.Spawn(ctx, subprocrunner.Config{
+		Bin: bin, Args: args, Env: envWithSystemBasics(env), InheritEnv: false,
+		Timeout: 12 * time.Second,
+		// No readiness probe — we EXPECT non-readiness. Process should
+		// exit non-zero before /health binds.
+	})
+	if res.StartErr != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: "spawn impl: " + res.StartErr.Error()})
+		return out
+	}
+	if !res.Exited {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("HR-12: subprocess did NOT exit with tampered card JWS; spec §15.5 requires fail-closed boot. TimedOut=%v Stderr=%s",
+				res.TimedOut, res.Stderr[:min(300, len(res.Stderr))])})
+		return out
+	}
+	if res.ExitCode == 0 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("HR-12: subprocess exited 0 with tampered card JWS; spec §15.5 requires non-zero exit. Stderr=%.200q", res.Stderr)})
+		return out
+	}
+	// Pass — impl detected the tampered JWS and refused to boot. Surface
+	// the reason from stderr+stdout if it cited one (CardSignatureFailed,
+	// x5c-missing, etc.) so the evidence is grounded.
+	reason := extractFailureReason(res.Stderr + "\n" + res.Stdout)
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("subprocess refused to boot with tampered card JWS: ExitCode=%d, reason=%s. Spec §15.5 fail-closed satisfied.",
+			res.ExitCode, reason)})
+	return out
+}
+
+// parseImplBin splits SOA_IMPL_BIN on whitespace into (executable, args).
+// On Windows, MSYS-style paths (/c/Users/...) are translated to Windows-
+// native (C:/Users/...) so the spawned process receives a path its OS
+// interprets correctly. Returns ("", nil, false) when SOA_IMPL_BIN is unset.
+func parseImplBin() (string, []string, bool) {
+	raw := strings.TrimSpace(os.Getenv("SOA_IMPL_BIN"))
+	if raw == "" {
+		return "", nil, false
+	}
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return "", nil, false
+	}
+	bin := fields[0]
+	args := fields[1:]
+	if runtime.GOOS == "windows" {
+		bin = msysToWindows(bin)
+		for i, a := range args {
+			args[i] = msysToWindows(a)
+		}
+	}
+	return bin, args, true
+}
+
+// msysToWindows translates "/c/Users/..." → "C:/Users/...". No-op for
+// strings that don't match the MSYS pattern.
+func msysToWindows(s string) string {
+	if len(s) >= 3 && s[0] == '/' && s[2] == '/' {
+		c := s[1]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return strings.ToUpper(string(c)) + ":" + s[2:]
+		}
+	}
+	return s
+}
+
+func implTestPort() int {
+	if raw := os.Getenv("SOA_IMPL_TEST_PORT"); raw != "" {
+		if p, err := strconv.Atoi(raw); err == nil && p > 0 {
+			return p
+		}
+	}
+	return 7701
+}
+
+// extractFailureReason scans stderr for spec-defined failure reason
+// strings and returns the first hit. Falls back to a short tail of stderr
+// when no known reason is recognized.
+func extractFailureReason(stderr string) string {
+	// Specific reasons first; general categories (CardSignatureFailed,
+	// HostHardeningInsufficient) only matched if no specific reason hit.
+	known := []string{
+		"bootstrap-expired",
+		"bootstrap-invalid-schema",
+		"bootstrap-missing",
+		"x5c-missing",
+		"signature-invalid",
+		"detached-jws-malformed",
+		"CardSignatureFailed",
+		"HostHardeningInsufficient",
+	}
+	for _, k := range known {
+		if strings.Contains(stderr, k) {
+			return k
+		}
+	}
+	// Return the last line as a hint.
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	if len(lines) > 0 {
+		last := lines[len(lines)-1]
+		if len(last) > 120 {
+			last = last[:120] + "…"
+		}
+		return "(no enum match; last stderr line: " + last + ")"
+	}
+	return "(no stderr)"
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// envWithSystemBasics passes through PATH/SystemRoot/etc. from the
+// validator's env so the spawned Node binary can find its runtime,
+// without inheriting validator-specific env vars (SOA_*, RUNNER_*) that
+// might interfere with the spawned impl's controlled boot.
+func envWithSystemBasics(overrides map[string]string) map[string]string {
+	out := make(map[string]string, len(overrides)+8)
+	for _, k := range []string{
+		"PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
+		"USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "ProgramFiles",
+		"COMSPEC", "OS", "PATHEXT", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+		"NODE_PATH",
+	} {
+		if v := os.Getenv(k); v != "" {
+			out[k] = v
+		}
+	}
+	for k, v := range overrides {
+		out[k] = v
+	}
 	return out
 }
 

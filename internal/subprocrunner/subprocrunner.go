@@ -8,17 +8,21 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 )
 
+func osEnv() []string { return os.Environ() }
+
 // Config describes a subprocess invocation.
 type Config struct {
-	Bin     string            // executable path (e.g., "node")
-	Args    []string          // arguments (e.g., ["dist/bin/start-runner.js"])
-	Env     map[string]string // env vars to pass (replaces inherited values for these keys)
-	Dir     string            // working directory (empty = current)
-	Timeout time.Duration     // wall-clock timeout for the spawn lifecycle
+	Bin        string            // executable path (e.g., "node")
+	Args       []string          // arguments (e.g., ["dist/bin/start-runner.js"])
+	Env        map[string]string // env vars to pass; overrides inherited values for these keys
+	InheritEnv bool              // when true, prepend os.Environ() before applying Env overrides
+	Dir        string            // working directory (empty = current)
+	Timeout    time.Duration     // wall-clock timeout for the spawn lifecycle
 	// ReadinessProbe, if set, is polled every PollInterval until it
 	// returns nil OR the process exits OR the timeout elapses. nil-return
 	// means "ready" (e.g., GET /health succeeded).
@@ -52,7 +56,7 @@ func Spawn(ctx context.Context, cfg Config) Result {
 	if cfg.Dir != "" {
 		cmd.Dir = cfg.Dir
 	}
-	cmd.Env = mergeEnv(cfg.Env)
+	cmd.Env = mergeEnv(cfg.Env, cfg.InheritEnv)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
@@ -113,15 +117,44 @@ func Spawn(ctx context.Context, cfg Config) Result {
 	}
 }
 
-func mergeEnv(overrides map[string]string) []string {
-	// Caller's env is the baseline; overrides replace matching keys.
-	// Don't inherit by default — boot-time tests want a controlled env.
-	// Caller can pass through specific keys (PATH, NODE_PATH) explicitly.
-	out := make([]string, 0, len(overrides))
+func mergeEnv(overrides map[string]string, inherit bool) []string {
+	// When inherit=false, the spawned process gets only `overrides` —
+	// useful for boot-time tests with maximal control. When true, we
+	// prepend os.Environ() so the subprocess inherits PATH/NODE_PATH/etc.
+	// then layer overrides on top (overrides win).
+	var base []string
+	if inherit {
+		base = append(base, osEnv()...)
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	overridden := make(map[string]struct{}, len(overrides))
+	for k := range overrides {
+		overridden[k] = struct{}{}
+	}
+	for _, kv := range base {
+		eq := indexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, ok := overridden[kv[:eq]]; ok {
+			continue // overridden below
+		}
+		out = append(out, kv)
+	}
 	for k, v := range overrides {
 		out = append(out, fmt.Sprintf("%s=%s", k, v))
 	}
 	return out
+}
+
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
 }
 
 func exitCodeFrom(cmd *exec.Cmd, waitErr error) int {
