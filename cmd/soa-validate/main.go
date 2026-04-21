@@ -34,62 +34,119 @@ func driveAuditRecordsCount() int {
 }
 
 // driveAuditRecords POSTs n /permissions/decisions calls against the demo
-// session. Each call writes one hash-chained audit row. Paces at 2.5s per
-// request — slow enough that the per-bearer rate limit (30 rpm sliding
-// window per impl §10.3.2) cannot fill: after 60 s of pacing the window
-// holds 24 requests, leaving 6 of headroom for subsequent SV-PERM-20 etc.
-// runs that share the bearer.
+// session, cycling through tools listed in SOA_DRIVE_AUDIT_TOOLS (comma-
+// separated; defaults to fs__read_file when unset). Each accepted call
+// writes one hash-chained audit row.
 //
-// Honors 429 Retry-After when the impl pushes back: sleeps Retry-After+1 s
-// and retries the same record without counting it. Failure modes other
-// than 429 stop the driver and return what was written so far + the error.
-func driveAuditRecords(ctx context.Context, c *runner.Client, n int) (int, error) {
+// Pacing & rate-limit handling:
+//   - 2.5 s default inter-request pace keeps the 30 rpm sliding window
+//     per-bearer rate limit from filling. After 60 s of pacing the
+//     window holds 24 requests — leaving 6 of headroom for subsequent
+//     SV-PERM-20 etc. runs that share the bearer.
+//   - On 429: read Retry-After, sleep that+1 s, retry the same record
+//     without counting it.
+//
+// Mixed-tool tolerance:
+//   - On 503 pda-verify-unavailable (Prompt-resolving tool against a
+//     deployment without PDA verify wired): log, count as "skipped",
+//     continue to the next tool. The driver does NOT fail the run on
+//     this code — it's an expected outcome on the current deployment.
+//
+// Other non-201 responses (400, 401, 403, 5xx other than 503-pda) stop
+// the driver and return what was written so far + the error.
+func driveAuditRecords(ctx context.Context, c *runner.Client, n int) (driveStats, error) {
 	demo := os.Getenv("SOA_IMPL_DEMO_SESSION")
 	if demo == "" {
-		return 0, fmt.Errorf("SOA_IMPL_DEMO_SESSION not set; cannot drive records")
+		return driveStats{}, fmt.Errorf("SOA_IMPL_DEMO_SESSION not set; cannot drive records")
 	}
 	parts := strings.SplitN(demo, ":", 2)
 	if len(parts) != 2 {
-		return 0, fmt.Errorf("SOA_IMPL_DEMO_SESSION must be <sid>:<bearer>")
+		return driveStats{}, fmt.Errorf("SOA_IMPL_DEMO_SESSION must be <sid>:<bearer>")
 	}
 	sid, bearer := parts[0], parts[1]
-	body := []byte(fmt.Sprintf(`{"tool":"fs__read_file","session_id":"%s","args_digest":"sha256:%s"}`,
-		sid, strings.Repeat("0", 64)))
-	const pace = 2500 * time.Millisecond
+	tools := []string{"fs__read_file"}
+	if raw := strings.TrimSpace(os.Getenv("SOA_DRIVE_AUDIT_TOOLS")); raw != "" {
+		tools = nil
+		for _, t := range strings.Split(raw, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tools = append(tools, t)
+			}
+		}
+	}
+	pace := 2500 * time.Millisecond
+	if raw := os.Getenv("SOA_DRIVE_PACE_MS"); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms >= 0 {
+			pace = time.Duration(ms) * time.Millisecond
+		}
+	}
 	hc := &http.Client{Timeout: 10 * time.Second}
-	written := 0
+	return driveAuditRecordsWith(ctx, hc, c.BaseURL(), sid, bearer, tools, n, pace)
+}
+
+type driveStats struct {
+	Written            int
+	SkippedPdaUnavail  int
+	RetriedAfter429    int
+}
+
+// driveAuditRecordsWith is the testable inner loop — accepts an explicit
+// http.Client + base URL + tool list + pace so unit tests can drive it
+// against an httptest.Server without real impl pacing delays.
+func driveAuditRecordsWith(ctx context.Context, hc *http.Client, baseURL, sid, bearer string, tools []string, n int, pace time.Duration) (driveStats, error) {
+	stats := driveStats{}
+	if len(tools) == 0 {
+		return stats, fmt.Errorf("driveAuditRecordsWith: tools list empty")
+	}
 	for i := 0; i < n; i++ {
+		tool := tools[i%len(tools)]
+		body := []byte(fmt.Sprintf(`{"tool":"%s","session_id":"%s","args_digest":"sha256:%s"}`,
+			tool, sid, strings.Repeat("0", 64)))
 		for {
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/permissions/decisions", bytes.NewReader(body))
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/permissions/decisions", bytes.NewReader(body))
 			if err != nil {
-				return written, err
+				return stats, err
 			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+bearer)
 			resp, err := hc.Do(req)
 			if err != nil {
-				return written, err
+				return stats, err
 			}
 			retryAfter := resp.Header.Get("Retry-After")
-			_, _ = io.Copy(io.Discard, resp.Body)
+			raw, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			if resp.StatusCode == http.StatusCreated {
-				written++
-				time.Sleep(pace)
-				break
-			}
-			if resp.StatusCode == http.StatusTooManyRequests {
+			switch resp.StatusCode {
+			case http.StatusCreated:
+				stats.Written++
+				if pace > 0 {
+					time.Sleep(pace)
+				}
+				goto nextRecord
+			case http.StatusTooManyRequests:
+				stats.RetriedAfter429++
 				secs, _ := strconv.Atoi(retryAfter)
 				if secs <= 0 {
 					secs = 5
 				}
 				time.Sleep(time.Duration(secs+1) * time.Second)
 				continue
+			case http.StatusServiceUnavailable:
+				if bytes.Contains(raw, []byte("pda-verify-unavailable")) {
+					stats.SkippedPdaUnavail++
+					if pace > 0 {
+						time.Sleep(pace)
+					}
+					goto nextRecord
+				}
+				return stats, fmt.Errorf("decision %d/%d (tool=%s): 503 body=%s", i+1, n, tool, string(raw))
+			default:
+				return stats, fmt.Errorf("decision %d/%d (tool=%s): status %d body=%s", i+1, n, tool, resp.StatusCode, string(raw))
 			}
-			return written, fmt.Errorf("decision %d/%d: status %d", i+1, n, resp.StatusCode)
 		}
+	nextRecord:
 	}
-	return written, nil
+	return stats, nil
 }
 
 const version = "0.1.0-week1"
@@ -161,16 +218,18 @@ func run(cfg config) error {
 	}
 
 	// V-07 audit-record driver: if SOA_DRIVE_AUDIT_RECORDS=N is set, fire
-	// N POST /permissions/decisions for fs__read_file against the demo
-	// session before running tests. Grows the audit chain for V-06/V-10
-	// to exercise non-trivial pagination + tamper detection.
+	// N POST /permissions/decisions for tools in SOA_DRIVE_AUDIT_TOOLS (or
+	// fs__read_file by default) against the demo session before running
+	// tests. Grows the audit chain for V-06/V-10 to exercise non-trivial
+	// pagination + tamper detection.
 	if live {
 		if n := driveAuditRecordsCount(); n > 0 {
-			driven, err := driveAuditRecords(context.Background(), client, n)
+			stats, err := driveAuditRecords(context.Background(), client, n)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "soa-validate: V-07 driver error after %d records: %v\n", driven, err)
+				fmt.Fprintf(os.Stderr, "soa-validate: V-07 driver error after %d records: %v\n", stats.Written, err)
 			} else {
-				fmt.Fprintf(os.Stdout, "V-07 driver: wrote %d audit records via POST /permissions/decisions\n", driven)
+				fmt.Fprintf(os.Stdout, "V-07 driver: wrote %d records, skipped %d (pda-verify-unavailable), retried %d (429 backoff)\n",
+					stats.Written, stats.SkippedPdaUnavail, stats.RetriedAfter429)
 			}
 		}
 	}

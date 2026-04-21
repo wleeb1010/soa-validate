@@ -4,6 +4,32 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 — Medium-mode prep: driver hardening + V-09/V-12 subprocess scaffolding)
+
+**Done while impl works on T-03 + T-08:**
+
+- **V-07 driver hardened.** Now accepts `SOA_DRIVE_AUDIT_TOOLS=tool1,tool2,…` (comma-separated; default `fs__read_file`); cycles through tools modulo list length. Rate-limit handling fixed at the type level — split into testable inner loop `driveAuditRecordsWith(client, baseURL, sid, bearer, tools, n, pace)` with explicit `driveStats{Written, SkippedPdaUnavail, RetriedAfter429}` return. Specific behaviors:
+  - **429 retry**: read `Retry-After`, sleep + 1s grace, retry the same record (don't count it).
+  - **503 pda-verify-unavailable tolerance**: count as `SkippedPdaUnavail`, **continue** to the next tool. Mixed-tool runs don't break when Prompt-resolving tools hit the deployment's missing-PDA-verify path.
+  - Other non-201 (400/401/403/5xx-non-pda) → loud failure (existing behavior preserved).
+- **4 driver unit tests** in `cmd/soa-validate/driver_test.go` against `httptest.Server` fixtures: 429+Retry-After regression, 503 pda-verify-unavailable continuation, mixed 201/503 alternating, 401 fail-loudly. All green.
+- **`internal/subprocrunner` package** — generic subprocess harness for boot-time-failure tests. `Spawn(ctx, Config) Result` records `ExitCode`, `Exited`, `TimedOut`, `ReadinessReached`, captured `Stdout`/`Stderr`. Optional `ReadinessProbe` for cleanly stopping a long-running process once it signals ready (e.g., `/health` returns 200). 5 unit tests using `go version` for clean-exit + non-zero-exit, cross-platform sleep (python-first fallback) for timeout + readiness paths, missing-binary for StartErr.
+- **HR-12 handler upgraded** (was bare stub) — uses subprocrunner; honest SKIP with precise diagnostic citing the two prerequisites: `SOA_IMPL_BIN` (validator-side) and impl T-06 (`RUNNER_CARD_JWS` env-var). Will flip to PASS when both are present.
+- **SV-BOOT-01 evidence message extended** to declare the V-12 negative-arm scaffold (3 fixture invocations: expired.json, channel-mismatch.json, mismatched-pub-kid.json → HostHardeningInsufficient) and what it needs (impl T-07: `RUNNER_INITIAL_TRUST` env-var). Happy-path live arm continues to satisfy SV-BOOT-01 PASS via /health+/ready.
+
+**Test count:** 14 passing unit tests across 12 internal packages (driver_test +4, subprocrunner +5; auditchain +5; existing core packages unchanged).
+
+**Scoreboard (16 tests, V-07 driver run):** **12 pass / 4 skip / 0 fail.** Without driver: 11 pass / 5 skip (HR-14 honestly skips when chain has <3 records).
+
+**Skips that flip to pass when impl ships the named task:**
+- HR-12 ← T-06 (`RUNNER_CARD_JWS`) + validator-side `SOA_IMPL_BIN`
+- SV-BOOT-01 negative-arm evidence ← T-07 (`RUNNER_INITIAL_TRUST`) + `SOA_IMPL_BIN`
+- HR-01 live ← cold-start restart hook
+- SV-SESS-BOOT-02 live ← Runner with default ReadOnly card (or subprocess harness with V-12 fixture)
+- SV-PERM-21 live ← PDA signing fixture (L-24 candidate)
+
+---
+
 ## 2026-04-20 (Week 3 day 3 — V-06 + V-10 + V-07 + SV-PERM-20 negative matrix all green; 12/4/0)
 
 **Done:**
