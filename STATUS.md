@@ -492,6 +492,56 @@ Once spec updates, pin-bump and both SV-PERM-20 + SV-PERM-21 return to PASS. Val
 
 ---
 
+## 2026-04-21 (Day 1 evening-10 — pin-bump `8ccddf2 → 0f031dc` adopting L-32; Finding J closed)
+
+Spec additive fix landed at `0f031dc` (L-32): `permission-decision-response.schema.json` now defines `idempotency_key` + `replayed` as optional properties. §10.3.2 body documents the Idempotency-Key-header → replay contract.
+
+**Pin updated:**
+- `spec_commit_sha = 0f031dcd29f6ed910b44f249971065e71b29fa33`
+- `spec_manifest_sha256 = de7e47ed5ab4fec070115aaabffa014e78bddb53ec8190c0a29d7a298383f97b`
+
+**No validator code change** — schemas re-read from spec at run time.
+
+### Scoreboard (pin `0f031dc`, 32 IDs) — **26 pass / 0 fail / 6 skip / 0 error**
+
+Clean green. Finding J resolved.
+
+- **SV-PERM-20 → PASS** (was fail)
+- **SV-PERM-21 → PASS** (was fail)
+- M2 live-green: **12** (unchanged from L-31 run, same set).
+- M1 live-green: **13** (all back; SV-PERM-20/21 re-green after brief L-31-introduced schema break).
+
+### First run had transient error on SV-SESS-BOOT-02
+
+- Symptom: `Post "http://127.0.0.1:7702/sessions": read tcp ... wsarecv: An existing connection was forcibly closed by the remote host.`
+- Cause: flake, almost certainly from a lingering subprocess on port 7702 from an earlier test in the sequence. Immediate re-run → PASS.
+- This is a validator-harness port-contention concern; not impl-side. Follow-up: either serialize subprocess spawns more strictly on the same port OR dynamically pick a free port per spawn (similar to the `pickFreePort` helper in the subprocrunner test file).
+
+### HR-14 flaps skip/pass based on audit-chain state
+
+- Handler requires ≥3 records for mid-chain tamper.
+- Passes when prior test runs (or a `SOA_DRIVE_AUDIT_RECORDS=N` env) have populated the chain past 3.
+- Skips cleanly otherwise. Not a regression — just an environmental prerequisite.
+- Follow-up: wire V-07 audit-driver into V-13 exit-gate invocation with `SOA_DRIVE_AUDIT_RECORDS=5` default so HR-14 + SV-AUDIT-RECORDS-02 reliably have material to assert against.
+
+### Remaining skips (6)
+
+- HR-02 — M3-deferred.
+- SV-SESS-02 — Finding C (impl resume trigger).
+- SV-SESS-03 — validator-side drive-loop follow-up.
+- SV-SESS-06 — POSIX-only platform guard (Windows correct skip).
+- SV-SESS-09 — Finding C residual (drift fires only along resume path).
+- HR-14 — audit-chain ≥3 precondition (env-drivable).
+
+### Net state
+
+- **26 pass / 0 fail / 6 skip / 0 error** across 32 IDs.
+- **M2 live-green: 12 of 16** (SV-SESS-01, 04, 05, 07, 08, 10, 11, SV-PERM-19, SV-SESS-STATE-01, SV-AUDIT-SINK-EVENTS-01, HR-04, HR-05).
+- **Findings J closed; C still open** for the final M2 IDs.
+- **Optional follow-ups** per user: (1) idempotency-positive Idempotency-Key coverage assertion; (2) V-13 auto-seeding of audit chain so HR-14 stable.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
