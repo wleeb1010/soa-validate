@@ -38,3 +38,6 @@ go.work.sum
 # Per-session local state (Claude Code)
 .claude/
 
+
+# Ephemeral session files written by impl subprocesses during test runs
+sessions/
