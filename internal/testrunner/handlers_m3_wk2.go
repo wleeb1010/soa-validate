@@ -255,3 +255,37 @@ func registryPending(h HandlerCtx, testID, diagnostic string) []Evidence {
 		{Path: PathLive, Status: StatusSkip, Message: testID + ": blocks on impl T-5 (dynamic MCP registration). Handler wired; flips when impl signals T-5 lands."},
 	}
 }
+
+// ─── V-8 SV-HOOK (8 tests) — PreToolUse / PostToolUse lifecycle ──────
+
+func handleSVHOOK01(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-01", "§11.5 PreToolUse/PostToolUse stdin schema conformance. Needs impl T-6 hook lifecycle.")
+}
+func handleSVHOOK02(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-02", "§11.5 PreToolUse 5s timeout default — hang → SIGKILL + Deny.")
+}
+func handleSVHOOK03(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-03", "§11.5 PostToolUse 10s timeout default — hang → SIGKILL + log.")
+}
+func handleSVHOOK04(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-04", "§11.5 exit-code table: 0,1,2,3 per spec; other codes → HookAbnormalExit.")
+}
+func handleSVHOOK05(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-05", "§11.5 PreToolUse replace_args modifies tool invocation.")
+}
+func handleSVHOOK06(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-06", "§11.5 PostToolUse replace_result modifies recorded tool result.")
+}
+func handleSVHOOK07(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-07", "§11.5 step-5 ordering: Perm → Pre → Tool → Post → Audit/Stream/Persist.")
+}
+func handleSVHOOK08(ctx context.Context, h HandlerCtx) []Evidence {
+	return hookPending(h, "SV-HOOK-08", "§11.5 no hook reentrancy: hook invoking a Runner tool → HookReentrancy + session terminate.")
+}
+
+func hookPending(h HandlerCtx, testID, diagnostic string) []Evidence {
+	return []Evidence{
+		{Path: PathVector, Status: StatusSkip, Message: testID + " — " + diagnostic},
+		{Path: PathLive, Status: StatusSkip, Message: testID + ": blocks on impl T-6 (PreToolUse/PostToolUse lifecycle via internal/subprocrunner). Handler wired; flips when impl signals T-6 lands."},
+	}
+}

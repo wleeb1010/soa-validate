@@ -136,6 +136,16 @@ var Handlers = map[string]Handler{
 	"SV-REG-05":     handleSVREG05,
 	"SV-REG-OBS-01": handleSVREGOBS01,
 	"SV-REG-OBS-02": handleSVREGOBS02,
+
+	// M3 Week 2 (V-8) — PreToolUse/PostToolUse hook lifecycle.
+	"SV-HOOK-01": handleSVHOOK01,
+	"SV-HOOK-02": handleSVHOOK02,
+	"SV-HOOK-03": handleSVHOOK03,
+	"SV-HOOK-04": handleSVHOOK04,
+	"SV-HOOK-05": handleSVHOOK05,
+	"SV-HOOK-06": handleSVHOOK06,
+	"SV-HOOK-07": handleSVHOOK07,
+	"SV-HOOK-08": handleSVHOOK08,
 }
 
 func stub(reason string) Handler {
