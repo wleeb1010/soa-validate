@@ -34,9 +34,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/runner"
+	"github.com/wleeb1010/soa-validate/internal/specvec"
 	"github.com/wleeb1010/soa-validate/internal/subprocrunner"
 )
 
@@ -196,30 +198,82 @@ func resumeCrashArmCardDrift(ctx context.Context, h HandlerCtx, testID string) [
 	}
 	defer cleanup()
 
-	_ = sessionDir
-	_ = specRoot
-	_ = bin
-	_ = args
-	// Finding D (surfaced 2026-04-21 Day 1 evening-2): the validator's
-	// plan to mutate card_version server-side is blocked by impl's
-	// §15.5 conformance-loader integrity check. When RUNNER_CARD_FIXTURE
-	// points at a validator-mutated card, impl refuses to load with
-	// `reason: 'digest-mismatch'` — an earlier layer of defense that
-	// short-circuits the resume-time drift check we wanted to exercise.
-	//
-	// Resolutions (spec- or impl-side):
-	//   (a) Spec ships a pinned pair of fixtures: card-v1.json +
-	//       card-v2-drift.json, each with its own digest in the manifest,
-	//       so the validator can feed a second *pinned-trusted* card.
-	//   (b) Impl adds an env flag (e.g., RUNNER_CARD_PATH-style) that
-	//       parses a card without digest verification, usable only for
-	//       validator-driven drift testing.
-	//
-	// Also blocked on Finding C: even with a distinct-but-valid card,
-	// drift detection only fires when §12.5 resume is actually triggered,
-	// which today never happens because resumeSession() has no caller.
-	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-		Message: "SV-SESS-09: validator-mutated drift card rejected by impl's conformance-loader at `reason=digest-mismatch` — need either spec-shipped second pinned card fixture OR impl env flag to bypass digest for validator testing. Also blocked on Finding C (resume trigger). Handler wired; flips when either resolution ships. (Finding D in STATUS.md)"})
+	// L-30 two-fixture swap: vanilla conformance-card in Phase A, v1.1
+	// drift card (byte-identical except version="1.1.0", separately pinned)
+	// in Phase B. Both cards pass impl's digest check individually, so we
+	// cleanly exercise §12.5 card-drift detection without tripping §15.5
+	// conformance-loader integrity.
+	v1_1CardPath := h.Spec.Path(specvec.ConformanceCardV1_1)
+	port := implTestPort()
+
+	// Phase A: vanilla conformance card + mint a session + 300ms settle
+	// so the session file persists under RUNNER_SESSION_DIR.
+	phaseAEnv := crashEnv(specRoot, port, testID+"-phaseA", sessionDir)
+	if phaseA := launchMintSessionKill(ctx, bin, args, phaseAEnv, port, testID); phaseA.skip != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: testID + " phase-A: " + phaseA.skip})
+		return out
+	}
+
+	// Phase B: relaunch with the v1.1 card pointing at the SAME session
+	// dir. Per L-29, impl invokes resume_session at boot; per §12.5 drift
+	// detection, it MUST refuse to resume the Phase-A session (whose
+	// stored card_version is 1.0.0) against the Phase-B card (1.1.0).
+	phaseBEnv := crashEnv(specRoot, port, testID+"-phaseB", sessionDir)
+	phaseBEnv["RUNNER_CARD_FIXTURE"] = v1_1CardPath
+	delete(phaseBEnv, "RUNNER_CRASH_TEST_MARKERS")
+
+	res := subprocrunner.Spawn(ctx, subprocrunner.Config{
+		Bin: bin, Args: args, Env: envWithSystemBasics(phaseBEnv), InheritEnv: false,
+		Timeout: 15 * time.Second,
+	})
+	combined := res.Stderr + "\n" + res.Stdout
+	// If impl rejects the v1.1 card with digest-mismatch, that's
+	// Finding E: impl's conformance-loader has a single hardcoded
+	// PINNED_CONFORMANCE_CARD_DIGEST that only recognizes v1.0.
+	// L-30 shipped the v1.1 fixture but impl hasn't added v1.1's JCS
+	// digest to its acceptance list. This short-circuits before the
+	// §12.5 drift path can fire — SKIP (not FAIL) with a specific pointer.
+	if strings.Contains(combined, "digest-mismatch") {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-SESS-09: impl rejected L-30 v1.1 card with reason=digest-mismatch before §12.5 drift path. Impl's conformance-loader has a single hardcoded PINNED_CONFORMANCE_CARD_DIGEST (v1.0 only); L-30 fixture ships spec-side but impl-side pin-list needs update. Resolutions: (a) impl adds a second pinned digest for v1.1 card's JCS digest, OR (b) impl exposes RUNNER_CARD_EXPECTED_DIGEST env override. (Finding E in STATUS.md)"})
+		return out
+	}
+	hasDrift := strings.Contains(combined, "CardVersionDrift") ||
+		strings.Contains(combined, "card-version-drift") ||
+		strings.Contains(combined, "card_version_drift")
+	switch {
+	case !res.Exited:
+		if !hasDrift {
+			// Impl booted fine with the mismatched card — either L-29
+			// resume trigger not wired, or impl missed the drift check.
+			// Distinguish by checking if impl mentions resume at all.
+			mentionedResume := strings.Contains(combined, "resume") || strings.Contains(combined, "Resume")
+			skipMsg := "impl booted with v1.1 card against v1.0 session dir but did not fire drift detection"
+			if !mentionedResume {
+				skipMsg += "; no 'resume' mention in stderr — L-29 trigger likely not yet wired"
+			}
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("%s phase-B: %s. stderr-tail=%.300q",
+					testID, skipMsg, tailString(res.Stderr, 300))})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("%s phase-B: observed CardVersionDrift but impl did NOT fail closed (still running). §12.5 requires termination. stderr-tail=%.300q",
+					testID, tailString(res.Stderr, 300))})
+		}
+	case res.ExitCode == 0:
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s phase-B: impl exited 0 with mismatched card_version; §12.5 requires non-zero exit on drift. stderr-tail=%.300q",
+				testID, tailString(res.Stderr, 300))})
+	case !hasDrift:
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s phase-B: impl exited %d but stderr lacks 'CardVersionDrift' enum; §12.5 requires that specific StopReason. stderr-tail=%.300q",
+				testID, res.ExitCode, tailString(res.Stderr, 300))})
+	default:
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: fmt.Sprintf("%s: phase-B with L-30 v1.1 card refused resume of phase-A session (v1.0). exit=%d, stderr cites CardVersionDrift per §12.5",
+				testID, res.ExitCode)})
+	}
 	return out
 }
 
@@ -354,21 +408,45 @@ func handleSVSESS02(ctx context.Context, h HandlerCtx) []Evidence {
 		return out
 	}
 	_ = corruptPath
-	_ = sessionDir
-	_ = specRoot
-	_ = bin
-	_ = args
-	// Finding C (surfaced 2026-04-21 Day 1 evening-2): impl's
-	// `resumeSession()` is defined + exported in packages/runner/src/session/resume.ts
-	// but has ZERO callers in the src tree. No boot-time sessionDir scan;
-	// no lazy-load on /sessions/<sid>/state for unknown session_id. The
-	// SessionFormatIncompatible code path fires only on an explicit read
-	// by known session_id — which today requires in-memory registration
-	// that dies with the process. Result: corrupt-session-file assertion
-	// is unreachable until the resume trigger is wired to either boot
-	// (scan-and-resume-all) or first-access (lazy hydrate).
-	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-		Message: "SV-SESS-02: corrupt session planted but impl's resumeSession() has no caller — no code path triggers a read of the corrupt file. Flips when impl wires resume to either boot-time sessionDir scan or first-access lazy hydrate. (Finding C in STATUS.md)"})
+	port := implTestPort()
+	env := crashEnv(specRoot, port, "svsess02-test-bearer", sessionDir)
+	// Crash markers not needed for SV-SESS-02.
+	delete(env, "RUNNER_CRASH_TEST_MARKERS")
+
+	// L-29 §12.5 normative: impl MUST invoke resume_session at boot
+	// (sessionDir scan) OR on lazy-hydrate. Either path reads the
+	// planted file, trips SessionFormatIncompatible, and fails closed.
+	res := subprocrunner.Spawn(ctx, subprocrunner.Config{
+		Bin: bin, Args: args, Env: envWithSystemBasics(env), InheritEnv: false,
+		Timeout: 12 * time.Second,
+	})
+	combined := res.Stderr + "\n" + res.Stdout
+	switch {
+	case !res.Exited:
+		// Impl came up ignoring the corrupt file. Two possibilities:
+		//   (a) L-29 resume trigger not yet wired impl-side → SKIP with pointer.
+		//   (b) resume trigger IS wired but doesn't fail-closed on corrupt files → FAIL.
+		// Distinguish by stderr signal: no 'SessionFormatIncompatible' mention → (a).
+		if !strings.Contains(combined, "SessionFormatIncompatible") && !strings.Contains(combined, "session-format-incompatible") {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("SV-SESS-02: impl booted to readiness despite corrupt session file; no SessionFormatIncompatible mention in stderr. L-29 resume trigger likely not yet wired impl-side (TimedOut=%v). Flips once impl wires boot-time sessionDir scan.", res.TimedOut)})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-SESS-02: impl observed SessionFormatIncompatible but did NOT exit non-zero; §12.5 requires fail-closed. stderr-tail=%.300q",
+					tailString(res.Stderr, 300))})
+		}
+	case res.ExitCode == 0:
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-SESS-02: impl exited 0 with corrupt session file; spec requires non-zero exit. stderr-tail=%.300q",
+				tailString(res.Stderr, 300))})
+	case !strings.Contains(combined, "SessionFormatIncompatible") && !strings.Contains(combined, "session-format-incompatible") && !strings.Contains(combined, "session_format_incompatible"):
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-SESS-02: impl exited %d but stderr lacks 'SessionFormatIncompatible' enum; §12.5 requires that specific StopReason. stderr-tail=%.300q",
+				res.ExitCode, tailString(res.Stderr, 300))})
+	default:
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: fmt.Sprintf("SV-SESS-02: impl refused corrupt session file at boot: exit=%d, stderr cites SessionFormatIncompatible per §12.5 (L-29 scan-at-boot)", res.ExitCode)})
+	}
 	return out
 }
 

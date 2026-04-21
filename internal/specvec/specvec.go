@@ -77,6 +77,12 @@ const (
 	AuditSinkEventsResponseSchema = "schemas/audit-sink-events-response.schema.json"
 	SessionSchema                 = "schemas/session.schema.json"
 
+	// L-30: v1.1 drift-pair card. Byte-identical to conformance-card
+	// except version is "1.1.0". Enables SV-SESS-09 two-fixture swap
+	// without validator-side card mutation (which would trip impl's
+	// digest-check on the vanilla conformance-card path).
+	ConformanceCardV1_1 = "test-vectors/conformance-card-v1_1/agent-card.json"
+
 	ToolRegistryM2Dir              = "test-vectors/tool-registry-m2"
 	ToolRegistryM2Combined         = "test-vectors/tool-registry-m2/tools.json"
 	ToolRegistryM2CompliantOnly    = "test-vectors/tool-registry-m2/tools-compliant-only.json"

@@ -176,6 +176,49 @@ Also gated on Finding C — even with a distinct-but-digest-valid card, drift de
 
 ---
 
+## 2026-04-21 (Day 1 evening-3 — L-29 + L-30 pin-bumped; SV-SESS-09 rewired; Finding E surfaced)
+
+**Done:**
+- **Pin-bumped `507eeb1 → 5fb1af9`** adopting **L-29 §12.5 resume-trigger normative points + L-30 v1.1 conformance-card fixture**. `spec_commit_sha = 5fb1af9840c948ef04fcad4279cd47f0f681495e`, `spec_manifest_sha256 = 4f4fddcd8cd7bf241fd968ba39609207d80fe85fba4d8a60ec207779c7aa1ec3`. Root-cause fixes for Findings C + D I surfaced.
+- Added `ConformanceCardV1_1 = "test-vectors/conformance-card-v1_1/agent-card.json"` to `internal/specvec/specvec.go`.
+- **SV-SESS-09 rewired** with the L-30 two-fixture swap pattern: Phase A spawns impl with vanilla conformance-card + mints a session + settles for persist; Phase B spawns impl pointing at the v1.1 card against the same `RUNNER_SESSION_DIR` and asserts impl fails-closed with `CardVersionDrift` in stderr (or /audit/records compensation path). Fully wired; no more validator-side mutation.
+- **SV-SESS-02 rewired** to restore the corrupt-session-file-plant + spawn flow (was dead-stub after Finding C). Detects both (a) L-29 resume trigger not yet wired impl-side → SKIP with pointer; (b) resume trigger IS wired but doesn't fail-closed → FAIL.
+
+### Scoreboard (pin `5fb1af9`, 32 IDs, :7700 + SOA_IMPL_BIN)
+
+**9 pass / 2 fail / 18 skip / 3 error** — same tallies as before the bump, because impl-side adoption hasn't landed yet.
+
+| Test | Status | Note |
+|---|---|---|
+| SV-SESS-02 | skip | L-29 resume trigger not yet wired impl-side (impl boots clean with corrupt file planted; no `SessionFormatIncompatible` in stderr). Flips when impl wires boot-time sessionDir scan. |
+| SV-SESS-09 | skip | **Finding E** below. |
+| Unchanged M2 greens + skips | — | SV-SESS-05, SV-SESS-11, SV-PERM-19, SV-AUDIT-SINK-EVENTS-01 stay green; crash-marker-dependent SKIPs unchanged. |
+
+### Finding E — Impl's conformance-loader has a single hardcoded digest
+
+Discovered after rewiring SV-SESS-09 to use the L-30 v1.1 fixture. Phase B returned `digest-mismatch` before the §12.5 drift path could fire.
+
+- `packages/runner/src/card/conformance-loader.ts` pins **one** digest: `PINNED_CONFORMANCE_CARD_DIGEST = "d29be9897b1faa7a8bebda10adda5d01f9243529dcb0f30de68f59c0248741ab"` (the JCS digest of the v1.0 card).
+- The loader accepts an `expectedDigest` override parameter, but `start-runner.ts` doesn't expose it via any env var.
+- Feeding the v1.1 fixture → its JCS digest doesn't match `PINNED_CONFORMANCE_CARD_DIGEST` → impl exits at boot with `reason: 'digest-mismatch'` before it ever reaches §12.5 resume.
+
+**L-30 shipped the spec-side fixture. Impl needs a matching patch.**
+
+**Resolution options (impl-side, pick one):**
+- (a) Maintain a *list* of accepted digests (v1.0 + v1.1) rather than a single scalar. Add a second `PINNED_CONFORMANCE_CARD_V1_1_DIGEST` and accept either.
+- (b) Expose `RUNNER_CARD_EXPECTED_DIGEST` as an env var in `start-runner.ts` → plumbs through to the existing `expectedDigest` option. Validator passes `a5e4b317de969ef48cb3100582d1cab44b58d6f17769b6b9def53ee3153dbc1a` for v1.1 (I'd also need to compute and pass the JCS digest — but that's the natural fixture-digest hand-off anyway).
+- (c) Check digests against a manifest-derived list loaded from the pinned spec repo at boot — eliminates hardcoded digests entirely.
+
+### Net state
+
+- **14 M2 IDs wired, 4 live-green**, and **5 findings open** against spec/impl (A, B, C, D, E).
+- All findings now have concrete, reviewable resolutions.
+- Validator-side work is at a resting point — no further code changes until impl lands resolutions or spec ships new fixtures.
+
+**Handing back to impl:** restart :7700 for CRL refresh (Finding B); wire `resumeSession` to boot scan or lazy-hydrate (Finding C); update conformance-loader digest list OR expose `RUNNER_CARD_EXPECTED_DIGEST` env override (Finding E). Validator ready.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
