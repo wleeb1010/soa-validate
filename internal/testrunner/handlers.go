@@ -1999,10 +1999,15 @@ func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: fmt.Sprintf("503 body error=%q reason=%q; §10.3.2 L-23 requires both to equal 'pda-verify-unavailable'", body.Error, body.Reason)})
 		return out
 	}
-	// Legacy non-conformant path — flag it rather than silently accept.
+	// 400 with "pda-malformed" reason: the reason token is in the L-22
+	// closed enum, but L-22 pins it as a 403 reason, not 400. Only 400
+	// case §10.3.2 enumerates is "malformed query parameters (missing
+	// tool/session_id, unrecognized characters)" — NOT a malformed PDA
+	// body. So status=400 + reason=pda-malformed is a status-code-for-
+	// the-right-reason-name mismatch. Honest fail with precise finding.
 	if status == http.StatusBadRequest {
 		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("400 %s; §10.3.2 L-23 (pin 1971e87) requires 503 pda-verify-unavailable, not 400. Impl has not adopted the rename on this Runner.", string(raw))})
+			Message: fmt.Sprintf("400 %s — the 'pda-malformed' reason token IS in the §10.3.2 L-22 closed enum, but L-22 pins it as a 403 reason, not 400. §10.3.2's defined 400 case is 'malformed query parameters'; a malformed PDA body should be 403 pda-malformed. Root-cause fix options: (a) impl returns 403 instead of 400 for pda-malformed, OR (b) spec adds 400 to the pda-malformed enum for wire-level JWS parse failures (vs 403 for shape-valid-but-semantically-wrong PDAs).", string(raw))})
 		return out
 	}
 	// Two spec-permitted paths depending on impl ordering:
