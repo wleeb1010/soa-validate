@@ -429,6 +429,69 @@ Watching impl STATUS for the wire-up signal.
 
 ---
 
+## 2026-04-21 (Day 1 evening-9 — L-31 wire-up live; +5 M2 greens; Finding J surfaced)
+
+Impl shipped L-31 marker wiring + new Idempotency-Key support. :7700 restarted. Re-ran the full suite.
+
+### Scoreboard (pin `8ccddf2`, 32 IDs) — **24 pass / 2 fail / 6 skip / 0 error**
+
+**+5 M2 greens** flipped (expected 6, got 5; SV-SESS-03 stays skip — details below):
+- **HR-04** (pending replays idempotently) — kill at `PENDING_WRITE_DONE`, relaunch, §12.5 resume.
+- **SV-SESS-04** (idempotency key continuity) — flipped as a bonus; kill at `PENDING_WRITE_DONE`, probe verifies continuity.
+- **SV-SESS-07** (Windows atomic-write) — kill between `COMMITTED_WRITE_DONE` + `DIR_FSYNC_DONE`, relaunch verified.
+- **SV-SESS-08** (resume replays pending) — kill at `PENDING_WRITE_DONE`, bracket-persist replays per §12.5 step 4.
+- **SV-SESS-10** (inflight compensation) — kill at `TOOL_INVOKE_START`, compensation / ResumeCompensationGap observed.
+
+**M2 live-green: 12** (was 7). Rolled-up IDs: SV-SESS-01, 04, 05, 07, 08, 10, 11, SV-PERM-19, SV-SESS-STATE-01, SV-AUDIT-SINK-EVENTS-01, HR-04, HR-05.
+
+### Finding J — Impl's Idempotency-Key response field violates `permission-decision-response.schema.json`
+
+**SV-PERM-20 + SV-PERM-21 fail** on schema validation:
+
+```
+jsonschema: '' does not validate with
+https://soa-harness.org/schemas/v1.0/permission-decision-response.schema.json#/additionalProperties:
+additionalProperties 'idempotency_key' not allowed
+```
+
+- Impl's L-31 wire-up added `idempotency_key` to the `POST /permissions/decisions` response body (to expose the idempotent-replay behavior per user: *"Idempotency-Key header returns cached:true with the same audit_record_id"*).
+- Spec's pinned `schemas/permission-decision-response.schema.json` carries `additionalProperties: false` and doesn't list `idempotency_key` among defined properties.
+- Impl shipped the field ahead of a matching spec-schema update.
+
+**Resolution (spec-side, additive):** add `idempotency_key` as an optional defined property on the 201 response schema. Suggested shape (based on impl's behavior):
+
+```json
+"idempotency_key": {
+  "type": "string",
+  "description": "Stable identifier for the decision request. When a client re-POSTs the same Idempotency-Key, the Runner returns the cached response (same audit_record_id) without writing a second audit row."
+}
+```
+
+Optional companion: `"replayed": { "type": "boolean" }` — so the client can distinguish fresh vs replay without requiring a duplicate Idempotency-Key on the original call.
+
+Once spec updates, pin-bump and both SV-PERM-20 + SV-PERM-21 return to PASS. Validator code has nothing to do with this; `additionalProperties: false` is the enforcement source.
+
+### Still-skip notes
+
+- **SV-SESS-03**: my handler currently reports `drive-and-observe loop pending M2-T2 (need phase writes visible)`. Handler is passive against /state; needs an active-drive loop that POSTs N decisions + polls /state between each to record phase-transition series. I'll wire this as a follow-up once I confirm impl's /state now returns `workflow.side_effects[]` entries post-L-31 (it should, given side-effect bracket now fires markers).
+- **SV-SESS-02**: Finding C still open — impl doesn't scan-and-resume sessionDir at boot, so the corrupt-file plant doesn't get read.
+- **SV-SESS-06**: Linux/macOS-only platform guard (Windows runner skip is correct behavior).
+- **SV-SESS-09**: card-drift test — v1.1 fixture loads (Finding E resolved), but drift-detection path didn't fire on L-29 resume trigger in my earlier probing. Needs re-run.
+- **HR-14**: chain at :7700 has 1 record; needs ≥3 for mid-chain tamper. Drivable via `SOA_DRIVE_AUDIT_RECORDS=N` env hook.
+
+### Net state
+
+- **24 pass / 2 fail / 6 skip / 0 error.**
+- M2 live-green: 12 of 16 test IDs wired.
+- One new finding (J) at the spec schema, one ready-to-iterate validator-side (SV-SESS-03 drive-loop), plus still-open C + residuals.
+
+**Handing back:**
+- **Finding J** — spec additive schema update for `idempotency_key`.
+- **Finding C** (still) — impl resume trigger at boot scan (blocks SV-SESS-02, possibly SV-SESS-09).
+- **SV-SESS-03 + HR-14** — validator-side follow-ups I'll tackle next.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
