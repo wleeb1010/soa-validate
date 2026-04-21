@@ -4,6 +4,44 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (M1 CLOSE — 14 pass / 2 skip / 0 fail across the full conformance suite)
+
+**Milestone:** Impl shipped Week 5b (commit `a3ca409` + STATUS `7c305e7`) — `create-soa-agent` scaffold + Linux/macOS/Windows ≤120 s cold-cache CI gate. Their punch list is fully cleared. **M1 complete on both sides.**
+
+**Final V-13 exit-gate run against impl at `127.0.0.1:7700` (pin `1971e87`):**
+
+| Test ID | Result | Path(s) |
+|---|---|---|
+| SV-CARD-01 | pass | vector + live (schema + JCS idempotent + Cache-Control + ETag) |
+| SV-SIGN-01 | pass | vector + live (header shape + signing-input round-trip) |
+| SV-BOOT-01 | pass | live happy-path (/health+/ready) + 3 V-12 negatives (subprocess: bootstrap-expired / bootstrap-invalid-schema / bootstrap-missing) |
+| SV-PERM-01 | pass | 24-cell oracle match + audit-tail invariant across 24 queries |
+| HR-01 | pass | vector (positive + semantic-reject + schema-reject + 4 inline negatives) |
+| HR-02 | skip | M3-deferred per must-map `implementation_milestone` (Token Budget projector is M3 scope) |
+| HR-12 | pass | live subprocess (tampered card JWS → x5c-missing fail-closed) |
+| HR-14 | pass | live (149-record chain integrity + tamper-at-index-74 detection) |
+| SV-AUDIT-TAIL-01 | pass | live state-adaptive (GENESIS or hex64) + idempotence |
+| SV-AUDIT-RECORDS-01 | pass | live 2-page pagination, 149 records, schema-valid every page |
+| SV-AUDIT-RECORDS-02 | pass | live full §10.5 chain integrity across 149 records |
+| SV-SESS-BOOT-01 | pass | live 6 sessions (3 caps × 2 decide-scope variants), full round-trip |
+| SV-SESS-BOOT-02 | pass | path-a (subprocess on :7702 with ReadOnly card → 403 ConfigPrecedenceViolation) |
+| SV-PERM-20 | pass | live (positive + insufficient-scope + session-bearer-mismatch; audit unchanged on both negatives) |
+| SV-PERM-21 | skip | L-24 PDA signing fixture (spec-side; tracked, not blocking M1 per rev-2 plan) |
+| SV-PERM-22 | pass | live L-23 deployment-misconfig branch (503 pda-verify-unavailable) |
+
+**14 pass / 2 skip / 0 fail. Zero workaround-passes.** Both skips carry explicit deferrals (HR-02 → spec-authored M3 milestone, SV-PERM-21 → tracked L-24 follow-up).
+
+**Validator-side coverage that landed during M1:**
+- 60+ unit tests across 13 internal packages (jcs/digest/musmap/agentcard/permprompt/runner/inittrust/crlstate/permresolve/toolregistry/auditchain/subprocrunner + cmd/soa-validate driver tests).
+- 6 spec-issue findings surfaced by the validator and fixed at the root (URL shorthand, JWS typ, x5c, conformance-card max_iterations, conformance-card policyEndpoint:null, SV-PERM-22 pda-verify-unavailable enum) plus the validator-side bugs caught in flight (MSYS path translation, fake-pass anti-pattern, extractFailureReason ordering, rate-limit cascade).
+- Independent §10.3 oracle re-implementation (`internal/permresolve`) cross-checks impl decisions against a hand-mirrored spec-README 24-cell matrix.
+- Subprocess harness (`internal/subprocrunner`) drives V-09/V-12 boot-time negatives + SV-SESS-BOOT-02 path-a controlled-deployment test.
+- M1 exit-gate command + docs (`docs/M1-EXIT-GATE.md`) + cross-platform CI scaffolds (`.github/workflows/{ci,live-e2e}.yml`).
+
+**Pin at `1971e87`** through M1 close. Ready for M2 when the spec/impl roadmaps re-open.
+
+---
+
 ## 2026-04-20 (Week 3 close — SV-SESS-BOOT-02 path-a green; 14 pass / 2 skip / 0 fail)
 
 **Done — three queued prep tasks all landed:**
