@@ -1728,13 +1728,92 @@ func msysToWindows(s string) string {
 	return s
 }
 
+// seedAuditChain POSTs `n` permission decisions against the :7700 impl
+// using the supplied session bearer. Each decision adds one audit row.
+// Returns (seededCount, firstError). Used by HR-14 (tamper assertion
+// needs ≥3 records) and can be reused by SV-AUDIT-RECORDS-02 if desired.
+//
+// This is deliberately conservative: it uses fs__read_file (ReadOnly
+// tool) so decisions are AutoAllow — no PDA required, no Prompt-scope
+// rejection path. Each decision uses a unique args_digest so impl's
+// idempotent-replay dedup doesn't collapse them into one audit row.
+func seedAuditChain(ctx context.Context, c *runner.Client, sessionBearer string, n int) (int, error) {
+	if n <= 0 {
+		return 0, nil
+	}
+	// Derive session_id from bearer — auditBearer returns (sid, bearer, source).
+	// For inline seeding we don't have sid handy; grab it via a bootstrap.
+	// Actually simpler: extract from the bearer-source flow by minting a
+	// fresh session of our own.
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		return 0, fmt.Errorf("SOA_RUNNER_BOOTSTRAP_BEARER unset; cannot mint seed session")
+	}
+	body := `{"requested_activeMode":"DangerFullAccess","user_sub":"hr14-seed","request_decide_scope":true}`
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("mint seed session: %w", err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		return 0, fmt.Errorf("mint seed session status=%d body=%.200q", resp.StatusCode, string(raw))
+	}
+	var parsed struct {
+		SessionID     string `json:"session_id"`
+		SessionBearer string `json:"session_bearer"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return 0, fmt.Errorf("parse bootstrap response: %w", err)
+	}
+	_ = sessionBearer // parameter preserved for clarity; seed uses its own session to avoid scope collisions
+	seeded := 0
+	for i := 0; i < n; i++ {
+		// Distinct args_digest per decision defeats impl's idempotent-replay
+		// cache (which collapses identical (session, tool, args) into one row).
+		digestHex := fmt.Sprintf("%064x", uint64(time.Now().UnixNano())+uint64(i))
+		decBody := fmt.Sprintf(
+			`{"tool":"fs__read_file","session_id":%q,"args_digest":"sha256:%s"}`,
+			parsed.SessionID, digestHex,
+		)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			c.BaseURL()+"/permissions/decisions",
+			strings.NewReader(decBody))
+		req.Header.Set("Authorization", "Bearer "+parsed.SessionBearer)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+		if err != nil {
+			return seeded, fmt.Errorf("seed decision %d: %w", i+1, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+			return seeded, fmt.Errorf("seed decision %d status=%d", i+1, resp.StatusCode)
+		}
+		seeded++
+	}
+	return seeded, nil
+}
+
+// implTestPort returns a port for subprocess spawns. Precedence:
+//  1. SOA_IMPL_TEST_PORT env override (back-compat; pinned port for reproducibility)
+//  2. Dynamic-free port via OS ephemeral allocation
+//
+// Default was a fixed 7701 which caused flakes when sequential subprocess
+// tests collided (e.g. SV-SESS-BOOT-02 "read tcp ... wsarecv" on re-run).
+// Dynamic allocation eliminates the contention surface per test.
 func implTestPort() int {
 	if raw := os.Getenv("SOA_IMPL_TEST_PORT"); raw != "" {
 		if p, err := strconv.Atoi(raw); err == nil && p > 0 {
 			return p
 		}
 	}
-	return 7701
+	if p, err := subprocrunner.PickFreePort(); err == nil {
+		return p
+	}
+	return 7701 // fall back if the OS can't hand out a free port — preserves old behavior
 }
 
 // extractFailureReason scans stderr for spec-defined failure reason
@@ -2280,9 +2359,25 @@ func handleHR14(ctx context.Context, h HandlerCtx) []Evidence {
 		return out
 	}
 	if len(all) < 3 {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: fmt.Sprintf("chain has %d records; HR-14 needs ≥3 so the tamper index is mid-chain. Drive more via SOA_DRIVE_AUDIT_RECORDS=N.", len(all))})
-		return out
+		// Self-seed: the tamper assertion needs ≥3 records for a mid-chain
+		// index to be meaningful. Drive decisions inline to fill the gap.
+		needed := 3 - len(all)
+		if seeded, seedErr := seedAuditChain(ctx, h.Client, demoBearer, needed); seedErr != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("chain has %d records; HR-14 needs ≥3 and inline-seed failed after %d posts: %v. Drive externally via SOA_DRIVE_AUDIT_RECORDS=N.", len(all), seeded, seedErr)})
+			return out
+		}
+		// Re-fetch after seeding.
+		all, _, _, err = collectAllRecords(ctx, h.Client, demoBearer, h.Spec)
+		if err != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "post-seed refetch: " + err.Error()})
+			return out
+		}
+		if len(all) < 3 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("inline-seed posted but chain still has %d records; HR-14 needs ≥3. Impl may be in degraded-buffering.", len(all))})
+			return out
+		}
 	}
 	// Baseline: chain must verify first.
 	if brk, err := auditchain.VerifyChain(all); err != nil {

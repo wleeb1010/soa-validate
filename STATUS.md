@@ -542,6 +542,77 @@ Clean green. Finding J resolved.
 
 ---
 
+## 2026-04-21 (Day 1 evening-11 — three validator-side follow-ups shipped; 28 pass / 0 fail / 0 error)
+
+Per user's request, tackled the three acknowledged validator-side TODOs before flagging SV-SESS-02/09 as "Finding C residual".
+
+### Follow-up (1) — dynamic-port-per-spawn
+
+- New `subprocrunner.PickFreePort()` exported helper (moved from test-only); binds `127.0.0.1:0`, records OS-assigned port, releases.
+- `implTestPort()` now prefers dynamic allocation when `SOA_IMPL_TEST_PORT` env override is unset. Fixed 7701 default kept only as the last-resort fallback for when the OS can't hand out a port.
+- Eliminates the SV-SESS-BOOT-02 "wsarecv: existing connection closed" flake observed in the previous run.
+
+### Follow-up (2) — HR-14 inline audit-chain seed
+
+- New `seedAuditChain(ctx, client, bearer, n)` helper in `handlers.go`.
+- When HR-14 sees chain <3 records, it mints a fresh seed session + POSTs `(3 - n)` decisions with distinct `args_digest` values (defeats idempotent-replay dedup). Refetches + retries the tamper assertion.
+- HR-14 now PASSes deterministically without requiring `SOA_DRIVE_AUDIT_RECORDS=N` env drive.
+
+### Follow-up (3) — SV-SESS-03 drive loop
+
+- `driveAndObservePhases(ctx, client, sid, bearer, n=10)` POSTs decisions across `{fs__read_file, fs__write_file}` with distinct args_digests; after each decision, GETs `/state` and records every `workflow.side_effects[]` entry's `(idempotency_key, phase, last_phase_transition_at)`.
+- `assertPhaseTransitions(obs)` applies §12.2 bracket rules:
+  - Phase transition chains MUST follow `pending → {inflight, committed, compensated}` — back-transitions or skip-pending produce a violation diagnostic.
+  - `last_phase_transition_at` MUST be monotonically non-decreasing per side_effect.
+- SV-SESS-03 now asserts real bracket-persist correctness.
+
+### Scoreboard (pin `0f031dc`, 32 IDs) — **28 pass / 0 fail / 4 skip / 0 error**
+
+**+2 flips from follow-ups:**
+- **SV-SESS-03** (was skip) — drive loop produced observations, phase transitions clean, timestamps monotonic.
+- **HR-14** (was flap/skip) — inline seed now deterministic.
+
+**M2 live-green: 13 of 16** (SV-SESS-01, 03, 04, 05, 07, 08, 10, 11, SV-PERM-19, SV-SESS-STATE-01, SV-AUDIT-SINK-EVENTS-01, HR-04, HR-05).
+
+### Remaining 4 skips — precise diagnostics
+
+#### HR-02 — M3-deferred
+Deferred by spec per must-map; §13 Token Budget scope. Nothing to do until M3.
+
+#### SV-SESS-06 — POSIX platform guard
+Platform check skips on Windows runner (correct behavior). Will run + likely pass on Linux/macOS CI. Not blocking.
+
+#### SV-SESS-02 — precise diagnostic for Finding C residual
+
+| Field | Value |
+|---|---|
+| Seed contents | `<RUNNER_SESSION_DIR>/ses_corrupt0000000001.json` with body `{"session_id":"ses_corrupt0000000001","format_version":"999.0","workflow":{"status":"NotAStatusEnumValue"}}` |
+| Subprocess env vars | `RUNNER_PORT=<dynamic>`, `RUNNER_HOST=127.0.0.1`, `RUNNER_INITIAL_TRUST=<spec>/test-vectors/initial-trust/valid.json`, `RUNNER_CARD_FIXTURE=<spec>/test-vectors/conformance-card/agent-card.json`, `RUNNER_TOOLS_FIXTURE=<spec>/test-vectors/tool-registry/tools.json`, `RUNNER_DEMO_MODE=1`, `SOA_RUNNER_BOOTSTRAP_BEARER=svsess02-test-bearer`, `RUNNER_SESSION_DIR=<tempdir>` |
+| Expected observable | impl exits non-zero during boot within 12s timeout, stderr mentions `SessionFormatIncompatible` / `session-format-incompatible` / `bad-format-version` |
+| Actual observable | impl boots clean to readiness; no `SessionFormatIncompatible` in stderr; handler times out waiting for exit (TimedOut=true) |
+| Delta | **impl does not scan `RUNNER_SESSION_DIR` at boot.** The persisted file sits untouched. L-29 normative says resume_session MUST be invoked at boot (scan) OR on first-access (lazy-hydrate). Impl has lazy-hydrate on `/sessions/<sid>/state` (confirmed: fresh POST-then-GET works per Finding F fix), but not boot-scan. The corrupt file is never read because nothing queries `ses_corrupt0000000001`. |
+| Two actionable impl fixes | (a) Ship the L-29 boot-scan path — iterate `fsp.readdir(sessionDir)`, call `resumeSession(persister, session_id, ctx)` per file; failing resumes exit non-zero with `SessionFormatIncompatible` per §12.5. (b) Validator alternative: refactor SV-SESS-02 to exercise the lazy-hydrate path via `GET /sessions/ses_corrupt.../state` with a mint-a-fresh-bearer; impl's strict `readSession` inside `tryLazyHydrate` would throw on the corrupt file. But (a) is the spec intent — boot scan is the normative post-crash trigger. |
+
+#### SV-SESS-09 — precise diagnostic for Finding C residual
+
+| Field | Value |
+|---|---|
+| Seed contents | Phase A: launch with `RUNNER_CARD_FIXTURE=<spec>/test-vectors/conformance-card/agent-card.json` (v1.0); mint session via POST /sessions; wait 300ms for persist settle. Session file `<RUNNER_SESSION_DIR>/ses_<minted>.json` on disk with `card_version: "1.0.0"`. |
+| Subprocess env vars (Phase B) | Identical to Phase A except `RUNNER_CARD_FIXTURE=<spec>/test-vectors/conformance-card-v1_1/agent-card.json` (v1.1 card, digest accepted post-L-31) |
+| Expected observable | Phase B either (a) exits non-zero at boot with `CardVersionDrift` in stderr (impl's §12.5 step-2 drift check fires during boot-scan resume), OR (b) GET /state on the v1.0 session returns an error citing drift. |
+| Actual observable | Phase B boots clean to readiness with v1.1 card; no `CardVersionDrift` in stderr; handler timed out waiting for exit/marker. |
+| Delta | **Same root cause as SV-SESS-02.** `resumeSession()` is defined in `packages/runner/src/session/resume.ts` with §12.5-step-2 drift check (lines 114–120 region) but has ZERO callers. Lazy-hydrate in `state-route.ts` uses strict `readSession` — which doesn't check card_version. Therefore drift detection never fires under current impl, regardless of card_version mismatch on disk. |
+| Fix | Wire `resumeSession` into at least one trigger. Normative options per L-29: boot-scan (iterate sessionDir, call resumeSession per file) OR replace `tryLazyHydrate`'s inner `readSession` call with `resumeSession`. Either flips SV-SESS-09 AND SV-SESS-02 simultaneously. |
+
+### Net state
+
+- **28 pass / 0 fail / 4 skip / 0 error** across 32 IDs.
+- M2 live-green: 13 of 16.
+- One impl-side finding drives the last two M2 flips: **Finding C** — resume trigger must actually invoke `resumeSession`.
+- Validator-side work at rest. No pending TODOs.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**

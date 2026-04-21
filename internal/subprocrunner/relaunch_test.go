@@ -3,7 +3,6 @@ package subprocrunner
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -196,15 +195,13 @@ else:
 	}
 }
 
-// pickFreePort binds :0 momentarily, records the port, releases. Good
-// enough for test isolation on a single CI host.
+// pickFreePort wraps the exported helper for the test file. Keeps
+// failure handling t.Fatalf-style for test ergonomics.
 func pickFreePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	p, err := PickFreePort()
 	if err != nil {
-		t.Fatalf("listen: %v", err)
+		t.Fatalf("pick free port: %v", err)
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	return port
+	return p
 }

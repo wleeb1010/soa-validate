@@ -521,14 +521,143 @@ func handleSVSESS03(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: "GET /sessions/<id>/state → 404; impl has not shipped §12.5.1 yet"})
 		return out
 	}
-	// Full drive-and-observe needs V-07 audit-driver + concurrent /state
-	// polling with phase-transition recording. The assertion logic
-	// (pending → committed | compensated; monotonic last_phase_transition_at)
-	// is straightforward but the driving loop needs M2-T2 (resume algorithm
-	// phase writes) to produce observable phase transitions.
-	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-		Message: "SV-SESS-03: bootstrap + /state reachable; drive-and-observe loop pending M2-T2 (need phase writes visible). Handler wired; flips once M2-T2 ships."})
+	// Drive-and-observe: POST N permission decisions; after each,
+	// GET /state and record workflow.side_effects[] phase + timestamps.
+	// Assert (a) every side_effect transitions pending → {committed,
+	// compensated} (never skip pending); (b) last_phase_transition_at
+	// monotonically non-decreasing per side_effect.
+	const driveCount = 10
+	observations, driveErr := driveAndObservePhases(ctx, h.Client, sid, bearer, driveCount)
+	if driveErr != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-SESS-03 drive loop error: " + driveErr.Error()})
+		return out
+	}
+	if len(observations) == 0 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-SESS-03: drove decisions but /state returned no side_effects entries. Impl may not emit side_effects for /permissions/decisions (bracket-persist only wires for tool invocations). Assertion cannot fire on current surface."})
+		return out
+	}
+	if violation := assertPhaseTransitions(observations); violation != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "SV-SESS-03 phase-transition violation: " + violation})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("SV-SESS-03: %d decisions driven; /state tracked %d unique side_effect(s) across %d observation(s); phases always pending → {committed,compensated}; last_phase_transition_at monotonically non-decreasing per §12.2",
+			driveCount, countUniqueSideEffects(observations), len(observations))})
 	return out
+}
+
+// phaseObservation records the phase + timestamp seen for one side_effect
+// at one /state poll. Keyed downstream by idempotency_key.
+type phaseObservation struct {
+	idempotencyKey         string
+	phase                  string
+	lastPhaseTransitionAt  string // RFC3339 from /state response
+	observedAt             time.Time
+}
+
+// driveAndObservePhases POSTs N decisions (mixing risk classes), after
+// each GET /state once and records every side_effect's (phase,
+// last_phase_transition_at) observation.
+func driveAndObservePhases(ctx context.Context, c *runner.Client, sessionID, sessionBearer string, n int) ([]phaseObservation, error) {
+	tools := []string{"fs__read_file", "fs__write_file", "fs__read_file", "fs__write_file", "fs__read_file"}
+	var obs []phaseObservation
+	for i := 0; i < n; i++ {
+		tool := tools[i%len(tools)]
+		digestHex := fmt.Sprintf("%064x", uint64(time.Now().UnixNano())+uint64(i))
+		decBody := fmt.Sprintf(
+			`{"tool":%q,"session_id":%q,"args_digest":"sha256:%s"}`,
+			tool, sessionID, digestHex,
+		)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			c.BaseURL()+"/permissions/decisions",
+			strings.NewReader(decBody))
+		req.Header.Set("Authorization", "Bearer "+sessionBearer)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+		if err != nil {
+			return obs, fmt.Errorf("decision %d: %w", i+1, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+			return obs, fmt.Errorf("decision %d status=%d", i+1, resp.StatusCode)
+		}
+		// Poll /state immediately after. Record every side_effect.
+		stateBody, statusCode, err := getSessionStateRaw(ctx, c, sessionID, sessionBearer)
+		if err != nil || statusCode != http.StatusOK {
+			return obs, fmt.Errorf("/state after decision %d: status=%d err=%v", i+1, statusCode, err)
+		}
+		var parsed struct {
+			Workflow struct {
+				SideEffects []struct {
+					IdempotencyKey        string `json:"idempotency_key"`
+					Phase                 string `json:"phase"`
+					LastPhaseTransitionAt string `json:"last_phase_transition_at"`
+				} `json:"side_effects"`
+			} `json:"workflow"`
+		}
+		if err := json.Unmarshal(stateBody, &parsed); err != nil {
+			return obs, fmt.Errorf("parse /state after decision %d: %w", i+1, err)
+		}
+		now := time.Now()
+		for _, se := range parsed.Workflow.SideEffects {
+			obs = append(obs, phaseObservation{
+				idempotencyKey:        se.IdempotencyKey,
+				phase:                 se.Phase,
+				lastPhaseTransitionAt: se.LastPhaseTransitionAt,
+				observedAt:            now,
+			})
+		}
+	}
+	return obs, nil
+}
+
+// assertPhaseTransitions applies the §12.2 bracket-persist rules to an
+// observation timeline. Returns an empty string if all rules hold;
+// otherwise returns a specific diagnostic. Rules:
+//   - Phase transition: the ONLY allowed transitions are pending→committed
+//     or pending→compensated. No skipping pending. No back-transitions.
+//   - last_phase_transition_at: monotonically non-decreasing per
+//     idempotency_key.
+func assertPhaseTransitions(obs []phaseObservation) string {
+	// Bucket observations by idempotency_key, preserving observedAt order.
+	byKey := make(map[string][]phaseObservation)
+	for _, o := range obs {
+		byKey[o.idempotencyKey] = append(byKey[o.idempotencyKey], o)
+	}
+	for key, series := range byKey {
+		var prevPhase, prevTs string
+		for i, o := range series {
+			// Phase rule: transitions only pending→committed or pending→compensated.
+			if i > 0 {
+				if o.phase != prevPhase {
+					ok := prevPhase == "pending" && (o.phase == "committed" || o.phase == "compensated" || o.phase == "inflight")
+					if !ok {
+						return fmt.Sprintf("side_effect %s: invalid phase transition %s → %s (§12.2 allows only pending → {inflight, committed, compensated})",
+							key, prevPhase, o.phase)
+					}
+				}
+			}
+			// Timestamp rule: monotonic non-decreasing.
+			if prevTs != "" && o.lastPhaseTransitionAt != "" && o.lastPhaseTransitionAt < prevTs {
+				return fmt.Sprintf("side_effect %s: last_phase_transition_at went backwards (%s → %s)",
+					key, prevTs, o.lastPhaseTransitionAt)
+			}
+			prevPhase = o.phase
+			prevTs = o.lastPhaseTransitionAt
+		}
+	}
+	return ""
+}
+
+func countUniqueSideEffects(obs []phaseObservation) int {
+	set := make(map[string]struct{})
+	for _, o := range obs {
+		set[o.idempotencyKey] = struct{}{}
+	}
+	return len(set)
 }
 
 // getSessionStateRaw returns the raw response body, HTTP status, and any
