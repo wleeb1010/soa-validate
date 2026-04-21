@@ -2,6 +2,7 @@ package testrunner
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/musmap"
@@ -33,6 +34,23 @@ func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
 		if !ok {
 			results = append(results, Result{ID: id, Status: StatusError,
 				Message: "test id not found in must-map"})
+			continue
+		}
+		// Spec-authored deferral: tests with implementation_milestone set
+		// to anything other than M1 skip automatically with the spec's
+		// declared reason. Catalog carries the source of truth here.
+		if def.ImplMilestone != "" && def.ImplMilestone != "M1" {
+			results = append(results, Result{
+				ID: id, Name: def.Name, Section: def.Section,
+				Profile: def.Profile, Severity: def.Severity,
+				Status: StatusSkip,
+				Message: fmt.Sprintf("deferred to %s per must-map: %s",
+					def.ImplMilestone, def.MilestoneReason),
+				Evidence: []Evidence{{
+					Path: PathVector, Status: StatusSkip,
+					Message: fmt.Sprintf("%s-deferred: %s", def.ImplMilestone, def.MilestoneReason),
+				}},
+			})
 			continue
 		}
 		h, hasHandler := Handlers[id]

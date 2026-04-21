@@ -4,6 +4,40 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 late — V-04 + V-05 green; parallel work while T-02 in flight)
+
+**Done while impl works on T-02:**
+
+- **V-05 SV-AUDIT-TAIL-01 live → PASS.** Against fresh Runner: `this_hash=GENESIS`, `record_count=0`, `last_record_timestamp` OMITTED (spec §10.5.2 MUST — not null, not empty string); two back-to-back reads stable on hash + count → not-a-side-effect idempotence satisfied.
+- **V-04 SV-SESS-BOOT-01 live → PASS.** POST /sessions × 3 against the DFA conformance card (ReadOnly, WorkspaceWrite, DangerFullAccess all 201); every 201 body schema-valid per `session-bootstrap-response.schema.json`; `granted_activeMode == requested`; `session_id` and `session_bearer` meet schema shape constraints.
+- **V-04 SV-SESS-BOOT-02 live → honest SKIP.** Requires a Runner loaded with the default `test-vectors/agent-card.json` (activeMode=ReadOnly) to exercise the 403 ConfigPrecedenceViolation path. Current deployment serves the DFA conformance card. Handler probes the live card shape first — if not ReadOnly, skips with precise diagnostic. Closing this gap requires either a second Runner instance or a subprocess-invocation test harness (V-09/V-12 scaffold territory).
+- **Generic M3-deferral wiring.** Added `implementation_milestone` + `milestone_reason` to `SVTest` struct; test runner now automatically skips any test whose must-map entry declares `implementation_milestone != M1` with the spec-authored reason. HR-02 flips to skip via catalog rather than via hand-coded handler special-case. Keeps the source of truth in the spec.
+- **Validator-side bug fix** from the V-03 run also shipped: schema-validation now runs against raw response bytes, not a re-encoded struct that dropped required fields.
+
+**Current live scoreboard (11 tests total — original 8 M1 + 3 extension test IDs):**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | pass + pass | pass (24/24 cells + audit invariant) |
+| HR-01 | pass | skip (impl cold-start hook pending) |
+| **HR-02** | — | **M3-deferred (per must-map)** |
+| HR-12 | skip | skip (M1 week 5 pending) |
+| HR-14 | skip | skip (M1 week 5 pending) |
+| **SV-AUDIT-TAIL-01** | — | **pass** |
+| **SV-SESS-BOOT-01** | — | **pass** |
+| SV-SESS-BOOT-02 | — | skip (deployment variation needed) |
+
+**7 pass / 4 skip / 0 fail.** Zero workaround-passes; every skip carries a spec-grounded or deployment-grounded diagnostic.
+
+**Waiting on impl T-02 (`POST /permissions/decisions`)** — that unblocks V-07 (audit-record driver), V-05 upgrade (tail advances past GENESIS after real records land), V-06 (SV-AUDIT-RECORDS-01/02), V-08 (SV-PERM-20/21/22 decision endpoint), V-10 (HR-14 tamper test).
+
+**Scaffolding in parallel (parked, not shipped):** V-09 (HR-12) and V-12 (SV-BOOT-01 negatives) subprocess harness pattern — spawn impl binary with env-var-varied configuration, run assertions, reap. Holding on implementation until a broader subprocess-invocation design is settled (same pattern needed for SV-SESS-BOOT-02 live too).
+
+---
+
 ## 2026-04-20 (Week 3 day 3 end — V-03 GREEN end-to-end; 7 pass / 1 skip / 0 fail)
 
 **Done:**

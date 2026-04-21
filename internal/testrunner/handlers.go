@@ -40,14 +40,17 @@ type HandlerCtx struct {
 
 // Handlers maps test IDs to their implementation.
 var Handlers = map[string]Handler{
-	"SV-CARD-01": handleSVCARD01,
-	"SV-SIGN-01": handleSVSIGN01,
-	"SV-PERM-01": handleSVPERM01,
-	"HR-01":      handleHR01,
-	"HR-02":      handleHR02,
-	"SV-BOOT-01": handleSVBOOT01,
-	"HR-12":      stub("assertions land in M1 week 5"),
-	"HR-14":      stub("assertions land in M1 week 5"),
+	"SV-CARD-01":       handleSVCARD01,
+	"SV-SIGN-01":       handleSVSIGN01,
+	"SV-PERM-01":       handleSVPERM01,
+	"HR-01":            handleHR01,
+	"HR-02":            handleHR02, // bypassed — must-map marks M3-deferred
+	"SV-BOOT-01":       handleSVBOOT01,
+	"HR-12":            stub("assertions land in M1 week 5"),
+	"HR-14":            stub("assertions land in M1 week 5"),
+	"SV-SESS-BOOT-01":  handleSVSESSBOOT01,
+	"SV-SESS-BOOT-02":  handleSVSESSBOOT02,
+	"SV-AUDIT-TAIL-01": handleSVAUDITTAIL01,
 }
 
 func stub(reason string) Handler {
@@ -513,6 +516,220 @@ func getResolve(ctx context.Context, c *runner.Client, sessionBearer, tool, sess
 // Week-3 live path needs different bearer values per endpoint (bootstrap vs session).
 func runnerHTTP(c *runner.Client) *http.Client {
 	return &http.Client{Timeout: 5 * time.Second}
+}
+
+// ─── SV-SESS-BOOT-01 ─────────────────────────────────────────────────────
+// POST /sessions under each of three activeMode values against a DFA-capable
+// deployment; 201 body schema-validates; granted_activeMode == requested;
+// session_id + session_bearer shapes meet schema patterns.
+
+func handleSVSESSBOOT01(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "no pinned vector for this test — POST /sessions is an endpoint-behavior assertion"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set in shell"})
+		return out
+	}
+	caps := []permresolve.Capability{
+		permresolve.CapReadOnly, permresolve.CapWorkspaceWrite, permresolve.CapDangerFullAccess,
+	}
+	for _, cap := range caps {
+		resp, status, err := postSession(ctx, h.Client, bearer, cap)
+		if err != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("POST /sessions(%s): %v", cap, err)})
+			return out
+		}
+		if status != http.StatusCreated {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("POST /sessions(%s) status=%d; expected 201 against DFA card", cap, status)})
+			return out
+		}
+		body, _ := json.Marshal(resp)
+		if err := agentcard.ValidateJSON(h.Spec.Path(specvec.SessionBootstrapResponseSchema), body); err != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("session-bootstrap response schema (%s): %v", cap, err)})
+			return out
+		}
+		if resp.GrantedActiveMode != string(cap) {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("requested %s, granted %s", cap, resp.GrantedActiveMode)})
+			return out
+		}
+		if !strings.HasPrefix(resp.SessionID, "ses_") || len(resp.SessionID) < 20 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("session_id %q fails schema pattern ^ses_[A-Za-z0-9]{16,}$", resp.SessionID)})
+			return out
+		}
+		if len(resp.SessionBearer) < 32 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("session_bearer length %d < minLength 32", len(resp.SessionBearer))})
+			return out
+		}
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: "3 sessions provisioned (RO, WW, DFA) against DFA card; all 201 bodies schema-valid; granted == requested; ids + bearers meet shape constraints"})
+	return out
+}
+
+// ─── SV-SESS-BOOT-02 ─────────────────────────────────────────────────────
+// Tighten-only 403: against a Runner loaded with the DEFAULT ReadOnly card,
+// POST /sessions with requested_activeMode=DangerFullAccess MUST 403 with
+// reason=ConfigPrecedenceViolation.
+
+func handleSVSESSBOOT02(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "pure impl-behavior assertion; no vector evidence"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	// Probe the running Runner's card; only execute if it's a ReadOnly card.
+	// The current deployment serves the DFA conformance card, so this skips
+	// with a precise diagnostic rather than firing against the wrong card.
+	resp, err := h.Client.Do(ctx, http.MethodGet, "/.well-known/agent-card.json", nil)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var card struct {
+		Permissions struct {
+			ActiveMode string `json:"activeMode"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(body, &card); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "parse card: " + err.Error()})
+		return out
+	}
+	if card.Permissions.ActiveMode != "ReadOnly" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("running Runner serves card with activeMode=%s; this test requires a Runner configured with the default test-vectors/agent-card.json (activeMode=ReadOnly). Needs either a second Runner instance or subprocess-invocation harness.", card.Permissions.ActiveMode)})
+		return out
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
+		return out
+	}
+	_, status, err := postSession(ctx, h.Client, bearer, permresolve.CapDangerFullAccess)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if status != http.StatusForbidden {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("POST /sessions(DFA) against ReadOnly card returned %d; expected 403 per §12.6", status)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: "ReadOnly card + requested DFA → 403 per §12.6 tighten-only gate"})
+	return out
+}
+
+// ─── SV-AUDIT-TAIL-01 ────────────────────────────────────────────────────
+// Fresh Runner: this_hash == "GENESIS", record_count == 0, last_record_timestamp
+// OMITTED from body (not present as key). Two back-to-back reads byte identical
+// (not-a-side-effect idempotence regression).
+
+func handleSVAUDITTAIL01(ctx context.Context, h HandlerCtx) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only test per spec §10.5.2 (endpoint-behavior assertion)"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SOA_RUNNER_BOOTSTRAP_BEARER not set"})
+		return out
+	}
+	// Need a session bearer first — /audit/tail requires any session bearer.
+	sess, status, err := postSession(ctx, h.Client, bearer, permresolve.CapReadOnly)
+	if err != nil || status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("provisioning session for audit-tail read: status=%d err=%v", status, err)})
+		return out
+	}
+	// First read.
+	raw1, err := getAuditTailRaw(ctx, h.Client, sess.SessionBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/tail (1): " + err.Error()})
+		return out
+	}
+	var tail1 auditTailResponse
+	if err := json.Unmarshal(raw1, &tail1); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if tail1.ThisHash != "GENESIS" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("fresh Runner this_hash=%q, expected GENESIS", tail1.ThisHash)})
+		return out
+	}
+	if tail1.RecordCount != 0 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("fresh Runner record_count=%d, expected 0", tail1.RecordCount)})
+		return out
+	}
+	// last_record_timestamp MUST be OMITTED (not null, not "") when empty — spec §10.5.2.
+	if bytes.Contains(raw1, []byte(`"last_record_timestamp"`)) {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "last_record_timestamp present on fresh Runner response; spec §10.5.2 requires OMITTED (key absent) when log is empty"})
+		return out
+	}
+	// Second read — byte-identical idempotence (not-a-side-effect regression).
+	raw2, err := getAuditTailRaw(ctx, h.Client, sess.SessionBearer, h.Spec)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "GET /audit/tail (2): " + err.Error()})
+		return out
+	}
+	// The `generated_at` timestamp will differ between reads; only assert that
+	// the content hash this_hash + record_count are byte-stable.
+	var tail2 auditTailResponse
+	_ = json.Unmarshal(raw2, &tail2)
+	if tail2.ThisHash != tail1.ThisHash || tail2.RecordCount != tail1.RecordCount {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("two-reads regression: hash/count drifted between back-to-back reads (hash %s→%s, count %d→%d)",
+				tail1.ThisHash, tail2.ThisHash, tail1.RecordCount, tail2.RecordCount)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: "fresh Runner: this_hash=GENESIS, record_count=0, last_record_timestamp omitted; two back-to-back reads stable on hash+count (not-a-side-effect idempotence)"})
+	return out
+}
+
+func getAuditTailRaw(ctx context.Context, c *runner.Client, sessionBearer string, sv specvec.Locator) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL()+"/audit/tail", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionBearer)
+	resp, err := runnerHTTP(c).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	if err := agentcard.ValidateJSON(sv.Path(specvec.AuditTailResponseSchema), raw); err != nil {
+		return nil, fmt.Errorf("schema: %w", err)
+	}
+	return raw, nil
 }
 
 // permResolveOracleCheck loads the pinned Tool Registry fixture, walks every

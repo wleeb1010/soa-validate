@@ -22,6 +22,11 @@ type SVTest struct {
 	Profile      string `json:"profile"`
 	Severity     string `json:"severity"`
 	Summary      string `json:"summary"`
+	// Per L-14: tests may be explicitly deferred to a later milestone.
+	// Empty string = M1 (the default). Non-empty values ("M2", "M3", "M5")
+	// tell the runner to skip with a milestone-deferral reason.
+	ImplMilestone   string `json:"implementation_milestone,omitempty"`
+	MilestoneReason string `json:"milestone_reason,omitempty"`
 }
 
 type MustCoverageEntry struct {
