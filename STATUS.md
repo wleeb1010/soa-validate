@@ -4,6 +4,27 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (M2 Week 1 Day 1 — foundation landed; pin bumped to 507eeb1)
+
+**Done:**
+- **Pin-bumped `8624a7a → 507eeb1`** adopting **L-27 M2 kickoff + L-28 M2 rev 2**. `spec_commit_sha = 507eeb1160adc79adf12c8bae669af1c0ed86ede`, `spec_manifest_sha256 = 0418932a2923452b95f484888f1cbdc64d5a591238d3578644d31abc359f03c0`. Reason: §12.5.1 byte-identity contract with `generated_at` exclusion (F-01), §12.5.2 audit-sink failure-mode hook, §12.5.3 crash-marker protocol (7 named markers), §12.5.4 `/audit/sink-events` channel, tool-registry-m2 fixtures, must-map expanded to 223.
+- **Plan-SHA discrepancy flagged:** `docs/plans/m2.md` quotes `spec_commit_sha = 507eeb1b0a12f1a15830e9f826f7af7fa19afb74` — that value does not resolve in the spec repo. Real `git rev-parse HEAD` is `507eeb1160adc79adf12c8bae669af1c0ed86ede` (same 7-char prefix, diverges past char 7). Pinned to the real resolvable SHA and documented the discrepancy inline in the pin_history entry.
+- **V2-02 Schema registry refresh:** added `SessionStateResponseSchema`, `AuditSinkEventsResponseSchema`, `SessionSchema`, and the three `ToolRegistryM2*` fixture paths to `internal/specvec/specvec.go`.
+- **V2-04 V-15 crash-test harness shipped** (`internal/subprocrunner/killatmarker.go` + `killatmarker_test.go`). New `SpawnUntilMarker(ctx, cfg)` streams subprocess stderr line-by-line, kills on first occurrence of the configured `SOA_MARK_*` token, supports `PreKillDelay` for writes-to-land-first semantics. `CrashMarkers` constant catalog exported as the seven spec-defined markers. Four unit tests cover: happy-path kill-on-marker, timeout when marker never appears, PreKillDelay respected, self-exit-before-marker records true ExitCode. Runs against synthetic markers today; live-exercised once impl ships `RUNNER_CRASH_TEST_MARKERS=1`.
+- **V2-10 SV-SESS-05 + SV-SESS-11 handlers wired** (`internal/testrunner/handlers_m2.go`): subprocess launches with tool-registry-m2 sub-fixtures. Positive arm: compliant-only fixture → boot clean → `/permissions/resolve?tool=compliant_ephemeral_tool` returns `Prompt`. Negative arm: non-compliant-only fixture → exit non-zero citing `ToolPoolStale` / `idempotency-retention-insufficient`. SV-SESS-11 additionally exercises the combined fixture's boot-refusal arm. Honest FAIL if impl permits a non-compliant entry (no workaround).
+- **V2-11 SV-PERM-19 + SV-AUDIT-SINK-EVENTS-01 handlers wired**: three-arm subprocess sweep over `SOA_RUNNER_AUDIT_SINK_FAILURE_MODE ∈ {healthy, degraded-buffering, unreachable-halt}`. Polls `GET /audit/sink-events` (§12.5.4), asserts exactly-one matching `AuditSink*` event per L-28 F-13 fresh-boot contract, schema-validates response body on the SV-AUDIT-SINK-EVENTS-01 path. Emits SKIP when `/audit/sink-events` returns 404 (impl has not shipped §12.5.4 yet) so the scoreboard stays honest.
+- **V2-03 V-14 session-state observer** + **SV-SESS-STATE-01 handler**: bootstraps session, reads `/sessions/<id>/state` twice rapidly, schema-validates, asserts `strip(body, "generated_at")`-byte-identity predicate per L-28 F-01 fix. SKIP when endpoint 404s.
+- **Must-map test count** test updated 221 → 223.
+- `go vet ./...` clean. Full unit-test suite green across 13 packages.
+
+**Scoreboard impact (against an impl still shipping M2-T1a + M2-T6):**
+- M1 IDs stay as they were (handlers unchanged, pin-bump has no M1 regressions).
+- 5 new M2 IDs registered; without a live M2-enabled impl they SKIP with specific diagnostics. These flip green as impl ships — no validator-side change needed.
+
+**Next:** Hold Week 1 through M2-T1a (non-idempotent rejection) + M2-T6 (sink-events endpoint). When impl says ready, I'll re-run the conformance suite, expect the 5 new M2 IDs to flip against a live Runner, and post the Week 1 exit scoreboard here.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**

@@ -61,6 +61,13 @@ var Handlers = map[string]Handler{
 	"HR-14":               handleHR14,
 	"SV-AUDIT-RECORDS-01": handleSVAUDITRECORDS01,
 	"SV-AUDIT-RECORDS-02": handleSVAUDITRECORDS02,
+
+	// M2 Week 1 — tool-pool classification + audit-sink state machine + state observability.
+	"SV-SESS-05":              handleSVSESS05,
+	"SV-SESS-11":              handleSVSESS11,
+	"SV-PERM-19":              handleSVPERM19,
+	"SV-AUDIT-SINK-EVENTS-01": handleSVAUDITSINKEVENTS01,
+	"SV-SESS-STATE-01":        handleSVSESSSTATE01,
 }
 
 func stub(reason string) Handler {

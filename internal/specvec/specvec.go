@@ -72,4 +72,13 @@ const (
 	PermissionsResolveResponseSchema = "schemas/permissions-resolve-response.schema.json"
 	PermissionDecisionResponseSchema = "schemas/permission-decision-response.schema.json"
 	AuditRecordsResponseSchema       = "schemas/audit-records-response.schema.json"
+
+	SessionStateResponseSchema    = "schemas/session-state-response.schema.json"
+	AuditSinkEventsResponseSchema = "schemas/audit-sink-events-response.schema.json"
+	SessionSchema                 = "schemas/session.schema.json"
+
+	ToolRegistryM2Dir              = "test-vectors/tool-registry-m2"
+	ToolRegistryM2Combined         = "test-vectors/tool-registry-m2/tools.json"
+	ToolRegistryM2CompliantOnly    = "test-vectors/tool-registry-m2/tools-compliant-only.json"
+	ToolRegistryM2NonCompliantOnly = "test-vectors/tool-registry-m2/tools-non-compliant-only.json"
 )
