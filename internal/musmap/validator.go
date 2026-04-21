@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	svIDPattern = regexp.MustCompile(`^(HR|SV-[A-Z0-9]+)-\d+$`)
+	svIDPattern = regexp.MustCompile(`^(HR|SV(-[A-Z0-9]+)+)-\d+$`)
 	uvIDPattern = regexp.MustCompile(`^UV-[A-Z]+-\d+[a-z]?(†)?$`)
 )
 

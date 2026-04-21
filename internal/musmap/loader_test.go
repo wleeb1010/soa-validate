@@ -31,8 +31,9 @@ func TestLoadSV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSV: %v", err)
 	}
-	if len(m.Tests) != 213 {
-		t.Errorf("expected 213 tests, got %d", len(m.Tests))
+	// Catalog grew 213 → 221 at spec commit 8b35375 (L-13 must-map integration).
+	if len(m.Tests) != 221 {
+		t.Errorf("expected 221 tests, got %d", len(m.Tests))
 	}
 	for _, id := range []string{"HR-01", "HR-02", "HR-12", "HR-14", "SV-SIGN-01", "SV-CARD-01", "SV-BOOT-01", "SV-PERM-01"} {
 		if _, ok := m.Tests[id]; !ok {

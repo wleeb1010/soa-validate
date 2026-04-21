@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 
 	"time"
 
@@ -261,18 +263,251 @@ const pinnedDecisionDigest = "7bc890692f68b7d3b842380fcf9739f9987bf77c6cdf4c7992
 func handleSVPERM01(ctx context.Context, h HandlerCtx) []Evidence {
 	out := []Evidence{permVectorCheck(h.Spec)}
 	if ev := permResolveOracleCheck(h.Spec); ev.Status != StatusPass {
-		return append(out, ev) // oracle disagreement is a hard fail — short-circuit
+		return append(out, ev)
 	} else {
 		out = append(out, ev)
 	}
-	if h.Live {
-		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "live path waiting on impl to ship POST /sessions (§12.6) + GET /audit/tail (§10.5.2). Currently discoverable on :7700 — /permissions/resolve exists; /sessions and /audit/tail both 404. Both are required: /sessions to obtain three session bearers (one per activeMode), /audit/tail for the not-a-side-effect this_hash invariant."})
-	} else {
+	if !h.Live {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
 	}
+	out = append(out, permResolveLiveCheck(ctx, h))
 	return out
+}
+
+// ─── SV-PERM-01 live path (§12.6 + §10.3.1 + §10.5.2) ─────────────────
+// The test-as-spec'd requires all 24 cells (3 activeModes × 8 tools) to be
+// exercisable against the running deployment. Pass criteria:
+//  - All three sessions provision (requires a card with activeMode=DangerFullAccess)
+//  - Every decision matches the §10.3 oracle
+//  - /audit/tail this_hash is byte-identical before and after the sweep
+// Any session that cannot provision → SKIP with deployment-gap diagnostic.
+// Any decision mismatch → FAIL. Any audit drift → FAIL.
+// Partial coverage is never reported as pass.
+
+type sessionBootstrapResponse struct {
+	SessionID        string `json:"session_id"`
+	SessionBearer    string `json:"session_bearer"`
+	GrantedActiveMode string `json:"granted_activeMode"`
+	ExpiresAt        string `json:"expires_at"`
+	RunnerVersion    string `json:"runner_version"`
+}
+
+type auditTailResponse struct {
+	ThisHash            string `json:"this_hash"`
+	RecordCount         int    `json:"record_count"`
+	LastRecordTimestamp string `json:"last_record_timestamp,omitempty"`
+	RunnerVersion       string `json:"runner_version"`
+	GeneratedAt         string `json:"generated_at"`
+}
+
+type resolveResponse struct {
+	Decision           string `json:"decision"`
+	ResolvedControl    string `json:"resolved_control"`
+	ResolvedCapability string `json:"resolved_capability"`
+	Reason             string `json:"reason"`
+	RunnerVersion      string `json:"runner_version"`
+	ResolvedAt         string `json:"resolved_at"`
+}
+
+func permResolveLiveCheck(ctx context.Context, h HandlerCtx) Evidence {
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		return Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "live path needs SOA_RUNNER_BOOTSTRAP_BEARER env var set (same value the Runner was started with)"}
+	}
+
+	// 1) Load the pinned Tool Registry fixture.
+	regBytes, err := h.Spec.Read(specvec.ToolRegistryJSON)
+	if err != nil {
+		return Evidence{Path: PathLive, Status: StatusError, Message: err.Error()}
+	}
+	reg, err := toolregistry.Parse(regBytes)
+	if err != nil {
+		return Evidence{Path: PathLive, Status: StatusError, Message: err.Error()}
+	}
+
+	// 2) Provision a session per capability. §10.3.1 conformance requires
+	//    all three to succeed; a deployment whose Agent Card caps activeMode
+	//    below DangerFullAccess cannot run the test-as-spec'd — SKIP with
+	//    diagnostic, never a partial-coverage pass.
+	type provisioned struct {
+		cap  permresolve.Capability
+		resp sessionBootstrapResponse
+	}
+	capsToTry := []permresolve.Capability{
+		permresolve.CapReadOnly, permresolve.CapWorkspaceWrite, permresolve.CapDangerFullAccess,
+	}
+	var grants []provisioned
+	var capDenied []permresolve.Capability
+	for _, cap := range capsToTry {
+		resp, status, err := postSession(ctx, h.Client, bootstrapBearer, cap)
+		if err != nil {
+			return Evidence{Path: PathLive, Status: StatusError, Message: fmt.Sprintf("POST /sessions (%s): %v", cap, err)}
+		}
+		switch status {
+		case http.StatusCreated:
+			if resp.GrantedActiveMode != string(cap) {
+				return Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("granted_activeMode=%s, requested=%s", resp.GrantedActiveMode, cap)}
+			}
+			body, _ := json.Marshal(resp)
+			if err := agentcard.ValidateJSON(h.Spec.Path(specvec.SessionBootstrapResponseSchema), body); err != nil {
+				return Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("session-bootstrap response schema violation (%s): %v", cap, err)}
+			}
+			grants = append(grants, provisioned{cap: cap, resp: resp})
+		case http.StatusForbidden:
+			capDenied = append(capDenied, cap)
+		default:
+			return Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("POST /sessions (%s) returned %d; expected 201 or 403", cap, status)}
+		}
+	}
+	if len(grants) != 3 {
+		return Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("test-as-spec'd (§10.3.1: 24 cells = 3 activeModes × 8 tools) not runnable on this deployment: %d/3 sessions provisioned; %v 403'd via §12.6 tighten-only gate (deployment's Agent Card activeMode caps below DangerFullAccess). Root-cause fix: deploy a Runner loading the DFA conformance card (test-vectors/conformance-card/) via RUNNER_CARD_FIXTURE. Refuses partial-coverage pass.", len(grants), capDenied)}
+	}
+
+	// 3) Baseline audit tail (use first grant's bearer).
+	firstBearer := grants[0].resp.SessionBearer
+	baseline, err := getAuditTail(ctx, h.Client, firstBearer, h.Spec)
+	if err != nil {
+		return Evidence{Path: PathLive, Status: StatusError, Message: "baseline /audit/tail: " + err.Error()}
+	}
+
+	// 4) Sweep every (tool, granted-capability) cell; assert response.decision
+	//    matches the §10.3 oracle.
+	sweptCells := 0
+	for _, g := range grants {
+		for _, tool := range reg.Tools {
+			resolved, status, err := getResolve(ctx, h.Client, g.resp.SessionBearer, tool.Name, g.resp.SessionID)
+			if err != nil {
+				return Evidence{Path: PathLive, Status: StatusError,
+					Message: fmt.Sprintf("/permissions/resolve(%s,%s): %v", tool.Name, g.cap, err)}
+			}
+			if status != http.StatusOK {
+				return Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("/permissions/resolve(%s,%s) status=%d", tool.Name, g.cap, status)}
+			}
+			body, _ := json.Marshal(resolved)
+			if err := agentcard.ValidateJSON(h.Spec.Path(specvec.PermissionsResolveResponseSchema), body); err != nil {
+				return Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("/permissions/resolve response schema (%s,%s): %v", tool.Name, g.cap, err)}
+			}
+			want := permresolve.Resolve(
+				permresolve.RiskClass(tool.RiskClass),
+				permresolve.Control(tool.DefaultControl),
+				g.cap, "",
+			)
+			if resolved.Decision != string(want) {
+				return Evidence{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("%s×%s: impl=%s, oracle=%s", tool.Name, g.cap, resolved.Decision, want)}
+			}
+			sweptCells++
+		}
+	}
+
+	// 5) Not-a-side-effect MUST — audit tail this_hash unchanged.
+	after, err := getAuditTail(ctx, h.Client, firstBearer, h.Spec)
+	if err != nil {
+		return Evidence{Path: PathLive, Status: StatusError, Message: "post-sweep /audit/tail: " + err.Error()}
+	}
+	if after.ThisHash != baseline.ThisHash {
+		return Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("§10.3.1 not-a-side-effect violated: audit this_hash changed %s → %s across %d resolve queries",
+				baseline.ThisHash, after.ThisHash, sweptCells)}
+	}
+
+	if sweptCells != len(reg.Tools)*len(grants) {
+		return Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("cell-count mismatch: swept %d, expected %d", sweptCells, len(reg.Tools)*len(grants))}
+	}
+	return Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("%d cells swept (all 3 activeModes × %d tools); every decision matches §10.3 oracle; §10.5.2 not-a-side-effect MUST satisfied — audit this_hash=%s unchanged across %d queries",
+			sweptCells, len(reg.Tools), baseline.ThisHash, sweptCells)}
+}
+
+func postSession(ctx context.Context, c *runner.Client, bootstrapBearer string, cap permresolve.Capability) (sessionBootstrapResponse, int, error) {
+	body := map[string]string{
+		"requested_activeMode": string(cap),
+		"user_sub":             "soa-validate",
+	}
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(string(b)))
+	if err != nil {
+		return sessionBootstrapResponse{}, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+	resp, err := runnerHTTP(c).Do(req)
+	if err != nil {
+		return sessionBootstrapResponse{}, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		return sessionBootstrapResponse{}, resp.StatusCode, nil
+	}
+	var out sessionBootstrapResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return sessionBootstrapResponse{}, resp.StatusCode, fmt.Errorf("decode: %w", err)
+	}
+	return out, resp.StatusCode, nil
+}
+
+func getAuditTail(ctx context.Context, c *runner.Client, sessionBearer string, sv specvec.Locator) (auditTailResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL()+"/audit/tail", nil)
+	if err != nil {
+		return auditTailResponse{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionBearer)
+	resp, err := runnerHTTP(c).Do(req)
+	if err != nil {
+		return auditTailResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return auditTailResponse{}, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if err := agentcard.ValidateJSON(sv.Path(specvec.AuditTailResponseSchema), body); err != nil {
+		return auditTailResponse{}, fmt.Errorf("schema: %w", err)
+	}
+	var out auditTailResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return auditTailResponse{}, fmt.Errorf("decode: %w", err)
+	}
+	return out, nil
+}
+
+func getResolve(ctx context.Context, c *runner.Client, sessionBearer, tool, sessionID string) (resolveResponse, int, error) {
+	url := fmt.Sprintf("%s/permissions/resolve?tool=%s&session_id=%s", c.BaseURL(), tool, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return resolveResponse{}, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionBearer)
+	resp, err := runnerHTTP(c).Do(req)
+	if err != nil {
+		return resolveResponse{}, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return resolveResponse{}, resp.StatusCode, nil
+	}
+	var out resolveResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return resolveResponse{}, resp.StatusCode, err
+	}
+	return out, resp.StatusCode, nil
+}
+
+// runnerHTTP extracts the underlying http.Client for manual request building.
+// We need this because runner.Client.Do always injects the client's bearer; the
+// Week-3 live path needs different bearer values per endpoint (bootstrap vs session).
+func runnerHTTP(c *runner.Client) *http.Client {
+	return &http.Client{Timeout: 5 * time.Second}
 }
 
 // permResolveOracleCheck loads the pinned Tool Registry fixture, walks every

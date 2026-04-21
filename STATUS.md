@@ -4,6 +4,36 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 3 late — pin at 8c10ce9; SV-CARD-01 live flipped; live wiring unparked; V-03 needs bearer)
+
+**Done since last push:**
+- **Pin-bumped `80680cd → 8c10ce9`**. `spec_commit_sha = 8c10ce9269f426396dbed07e41ac567d1a2f1813`, `spec_manifest_sha256 = f38ca28f47…a3a54`. Single-reason: L-21 conformance-card fixture schema conformance (three fixes resolving my Week 3 day 3 finding — `max_iterations: 0→1`, `policyEndpoint: null` removed, `spki_sha256` valid hex64 placeholder).
+- **SV-CARD-01 live flipped fail → pass.** Runner serves the fixed conformance card (`soa-conformance-test-agent`, `activeMode=DangerFullAccess`); full agent-card schema validates cleanly on the wire.
+- **Live wiring unparked** — `internal/testrunner/handlers.go` now shipped with the §10.3.1 + §12.6 + §10.5.2 live path (POST /sessions × 3, 24-cell sweep with oracle compare, /audit/tail this_hash invariant). **Partial-pass anti-pattern removed**: if fewer than 3 sessions provision, handler returns SKIP with diagnostic — never PASS on partial coverage.
+- **must-map loader updates** forced by L-13 catalog growth: test count bumped 213 → 221; ID regex now accepts multi-segment categories (`SV-SESS-BOOT-01`, `SV-AUDIT-TAIL-01`, etc.).
+
+**Current live scoreboard against 127.0.0.1:7700:**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | **pass (NEW — fixture fixes at 8c10ce9)** |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | pass (prompt + 24-cell oracle) | skip (no `SOA_RUNNER_BOOTSTRAP_BEARER` in shell) |
+| HR-01 | pass | skip |
+| HR-02 | pass | pass (binary) |
+| HR-12, HR-14 | skip | skip |
+
+**6 pass / 2 skip / 0 fail.**
+
+**V-03 (24-cell live sweep) ready to run.** Handler code ships with all the plumbing; needs only `SOA_RUNNER_BOOTSTRAP_BEARER` exported in the validator's shell (same value the Runner was launched with). When set, handler will POST /sessions × 3 (all 3 activeModes now provisionable against the DFA card), GET /audit/tail baseline, sweep 24 cells asserting impl-decision == §10.3-oracle-decision, GET /audit/tail again and assert this_hash unchanged.
+
+**Flagged pending — relabel task (rev 2 plan):** my HR-01 / HR-02 vector assertions (initial-trust schema coverage + CRL state-machine coverage) don't match the HR-01 "Destructive approval" / HR-02 "Budget exhaustion" entries in the must-map; those were label-misuses from the original Week 2 plan. The rev 2 plan's formal relabel moves them to SV-BOOT-01 negative-path coverage or new local labels. Holding the relabel as a focused follow-up commit.
+
+**Queued for impl-side ship:** `POST /permissions/decisions` (T-02), `GET /audit/records` (T-01), `request_decide_scope` (T-03). When those land, V-07 / V-05 / V-06 / V-08 / V-10 can run end-to-end.
+
+---
+
 ## 2026-04-20 (Week 3 day 3 — pin at 80680cd; draft live wiring parked pending impl card loader; 6/2/0 stays honest)
 
 **Gap I surfaced today (day 3 morning) — and the upstream fix that closed it:**
