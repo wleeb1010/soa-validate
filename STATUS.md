@@ -4,6 +4,51 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (Week 3 day 2 — pin at e7580b9; Tool Registry oracle vector-green; live still waiting on /sessions + /audit/tail)
+
+**Done:**
+- **Pin-bumped `2eccf6e → e7580b9`**. `spec_commit_sha = e7580b93e5d14911d427556b11b99f5457611188`, `spec_manifest_sha256 = 7d4406165f…f2af2dc0`. Single-reason bump adopts L-10/L-11/L-12: §10.5.2 audit tail, §12.6 session bootstrap, pinned tool-registry fixture with the 24-cell decision matrix.
+- `internal/toolregistry` — loader + shape for `test-vectors/tool-registry/tools.json` (8 tools, deliberately spans every `(risk_class, default_control)` lattice row).
+- `internal/permresolve` — validator's **independent re-implementation of Core §10.3**. Pure function: `Resolve(risk, defaultControl, capability, overrideControl) → Decision`. Encodes:
+  - Step 2 capability lattice: ReadOnly ⊂ WorkspaceWrite ⊂ DangerFullAccess covers {ReadOnly, Mutating, Destructive, Egress}
+  - Step 3 tighten-only composition with `ConfigPrecedenceViolation` on loosening override
+  - Terminal decisions: AutoAllow | Prompt | Deny | CapabilityDenied | ConfigPrecedenceViolation
+- 3 unit tests, including `TestOracleMatchesSpec24CellMatrix` that hand-mirrors the `test-vectors/tool-registry/README.md` table and asserts oracle output equals the spec-authored value for every cell. Any drift between my §10.3 implementation and the spec's authoritative statement → test fails.
+- **SV-PERM-01 vector path now carries two pass items:**
+  1. Existing permission-prompt vector (nonce equality, JCS=385B, spec-authored SHA digest match, PDA-JWS shape)
+  2. New Tool Registry oracle: 8 tools × 3 activeModes = 24 enum-valid decision cells, oracle matches spec 24-cell matrix
+- SV-PERM-01 live message upgraded to name the exact surfaces that unblock it: **`POST /sessions` (§12.6)** + **`GET /audit/tail` (§10.5.2)** — both 404 on current impl at :7700.
+
+**Test count:** 45 unit tests across 10 internal packages. `go vet ./...` clean, `go test ./...` green, `go build` produces static binary.
+
+**Live scoreboard (unchanged — waiting on impl's next ship):**
+
+| Test | vector | live |
+|---|---|---|
+| SV-CARD-01 | pass | pass |
+| SV-SIGN-01 | pass | pass |
+| SV-BOOT-01 | — | pass |
+| SV-PERM-01 | **pass (2 items: permission-prompt + Tool-Registry oracle)** | skip |
+| HR-01 | pass | skip |
+| HR-02 | pass | pass (binary accept/reject only) |
+| HR-12, HR-14 | skip | skip |
+
+**6 pass / 2 skip / 0 fail.**
+
+**Ready for live flip:** the moment impl ships POST /sessions + GET /audit/tail, the live path handler will:
+1. `POST /sessions` three times (requested_activeMode = ReadOnly | WorkspaceWrite | DangerFullAccess) to obtain three session bearers
+2. `GET /audit/tail` → capture baseline `this_hash`
+3. For each of the 24 cells, `GET /permissions/resolve?tool=<name>&session_id=<sid>` with the matching bearer; assert `response.decision` == oracle-computed decision
+4. `GET /audit/tail` → capture post-batch `this_hash`; assert equal (not-a-side-effect per §10.3.1 normative MUST)
+
+All wiring designed against the new normative text; no impl-specific assumptions baked in.
+
+**Awaiting:**
+- Impl ships `POST /sessions` + `GET /audit/tail` on :7700
+- L-13 catalog integration lands new test IDs `SV-AUDIT-TAIL-01`, `SV-SESS-BOOT-01/02` in `soa-validate-must-map.json`
+
+---
+
 ## 2026-04-20 (Week 3 day 1 — pin at 2eccf6e; §10.3.1 endpoint is the root-cause fix for SV-PERM-01 live gap; awaiting impl)
 
 **Done:**

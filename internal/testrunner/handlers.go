@@ -17,8 +17,10 @@ import (
 	"github.com/wleeb1010/soa-validate/internal/inittrust"
 	"github.com/wleeb1010/soa-validate/internal/jcs"
 	"github.com/wleeb1010/soa-validate/internal/permprompt"
+	"github.com/wleeb1010/soa-validate/internal/permresolve"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
+	"github.com/wleeb1010/soa-validate/internal/toolregistry"
 )
 
 // T_ref for CRL state-machine clock injection per test-vectors/crl/README.md.
@@ -258,14 +260,67 @@ const pinnedDecisionDigest = "7bc890692f68b7d3b842380fcf9739f9987bf77c6cdf4c7992
 
 func handleSVPERM01(ctx context.Context, h HandlerCtx) []Evidence {
 	out := []Evidence{permVectorCheck(h.Spec)}
+	if ev := permResolveOracleCheck(h.Spec); ev.Status != StatusPass {
+		return append(out, ev) // oracle disagreement is a hard fail — short-circuit
+	} else {
+		out = append(out, ev)
+	}
 	if h.Live {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
-			Message: "impl exposes permission flow as a library only (resolvePermission / verifyPda); no HTTP route registered at :7700 — discoverable routes are /health, /ready, and the two agent-card paths. Live path unblocks when impl wires a /permission or /session SSE flow."})
+			Message: "live path waiting on impl to ship POST /sessions (§12.6) + GET /audit/tail (§10.5.2). Currently discoverable on :7700 — /permissions/resolve exists; /sessions and /audit/tail both 404. Both are required: /sessions to obtain three session bearers (one per activeMode), /audit/tail for the not-a-side-effect this_hash invariant."})
 	} else {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: "live path skipped: SOA_IMPL_URL unset"})
 	}
 	return out
+}
+
+// permResolveOracleCheck loads the pinned Tool Registry fixture, walks every
+// (tool, activeMode) cell through the §10.3 oracle, and verifies the fixture
+// is consistent — every tool's risk_class / default_control is one the oracle
+// recognizes, the 24-cell matrix produces deterministic decisions, and the
+// spec-authored expected matrix in the README matches oracle output
+// (enforced separately in internal/permresolve/*_test.go). This establishes
+// the validator-side decision source-of-truth the live path will assert against.
+func permResolveOracleCheck(sv specvec.Locator) Evidence {
+	regBytes, err := sv.Read(specvec.ToolRegistryJSON)
+	if err != nil {
+		return Evidence{Path: PathVector, Status: StatusError, Message: err.Error()}
+	}
+	reg, err := toolregistry.Parse(regBytes)
+	if err != nil {
+		return Evidence{Path: PathVector, Status: StatusFail, Message: "parse tool-registry: " + err.Error()}
+	}
+	if len(reg.Tools) != 8 {
+		return Evidence{Path: PathVector, Status: StatusFail,
+			Message: fmt.Sprintf("pinned tool-registry has %d tools; expected 8 per §10.3.1 README matrix", len(reg.Tools))}
+	}
+	caps := []permresolve.Capability{
+		permresolve.CapReadOnly, permresolve.CapWorkspaceWrite, permresolve.CapDangerFullAccess,
+	}
+	cells := 0
+	for _, t := range reg.Tools {
+		for _, cap := range caps {
+			d := permresolve.Resolve(
+				permresolve.RiskClass(t.RiskClass),
+				permresolve.Control(t.DefaultControl),
+				cap,
+				"", // no toolRequirements overrides in the pinned fixture
+			)
+			// Any unexpected token (e.g., new risk_class added to fixture without
+			// oracle support) surfaces as a fail — don't silently mis-classify.
+			switch d {
+			case permresolve.DecAutoAllow, permresolve.DecPrompt, permresolve.DecDeny,
+				permresolve.DecCapabilityDenied, permresolve.DecConfigPrecedenceViolation:
+				cells++
+			default:
+				return Evidence{Path: PathVector, Status: StatusFail,
+					Message: fmt.Sprintf("oracle produced non-enum decision %q for %s×%s (fixture may have drifted beyond oracle support)", d, t.Name, cap)}
+			}
+		}
+	}
+	return Evidence{Path: PathVector, Status: StatusPass,
+		Message: fmt.Sprintf("pinned Tool Registry fixture (8 tools) + §10.3 oracle yield %d enum-valid decision cells; oracle matches spec 24-cell matrix (asserted in permresolve unit tests)", cells)}
 }
 
 func permVectorCheck(sv specvec.Locator) Evidence {

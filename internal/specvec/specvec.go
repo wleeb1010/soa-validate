@@ -52,4 +52,10 @@ const (
 	CRLFresh   = "test-vectors/crl/fresh.json"
 	CRLStale   = "test-vectors/crl/stale.json"
 	CRLExpired = "test-vectors/crl/expired.json"
+
+	ToolRegistryJSON = "test-vectors/tool-registry/tools.json"
+
+	AuditTailResponseSchema       = "schemas/audit-tail-response.schema.json"
+	SessionBootstrapResponseSchema = "schemas/session-bootstrap-response.schema.json"
+	PermissionsResolveResponseSchema = "schemas/permissions-resolve-response.schema.json"
 )
