@@ -1999,15 +1999,25 @@ func handleSVPERM22(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: fmt.Sprintf("503 body error=%q reason=%q; §10.3.2 L-23 requires both to equal 'pda-verify-unavailable'", body.Error, body.Reason)})
 		return out
 	}
-	// 400 with "pda-malformed" reason: the reason token is in the L-22
-	// closed enum, but L-22 pins it as a 403 reason, not 400. Only 400
-	// case §10.3.2 enumerates is "malformed query parameters (missing
-	// tool/session_id, unrecognized characters)" — NOT a malformed PDA
-	// body. So status=400 + reason=pda-malformed is a status-code-for-
-	// the-right-reason-name mismatch. Honest fail with precise finding.
+	// L-26: §10.3.2 moved pda-malformed from 403 enum to 400 enum.
+	// Wire-level malformed PDA → 400 + error/reason == "pda-malformed";
+	// no audit record written (auth/structural failure, never touches
+	// resolver).
 	if status == http.StatusBadRequest {
-		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("400 %s — the 'pda-malformed' reason token IS in the §10.3.2 L-22 closed enum, but L-22 pins it as a 403 reason, not 400. §10.3.2's defined 400 case is 'malformed query parameters'; a malformed PDA body should be 403 pda-malformed. Root-cause fix options: (a) impl returns 403 instead of 400 for pda-malformed, OR (b) spec adds 400 to the pda-malformed enum for wire-level JWS parse failures (vs 403 for shape-valid-but-semantically-wrong PDAs).", string(raw))})
+		r := extractReason(raw)
+		if r != "pda-malformed" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("400 reason=%q; L-26 §10.3.2 400 enum requires 'pda-malformed'; body=%s", r, string(raw))})
+			return out
+		}
+		after, _ := getAuditTail(ctx, h.Client, demoBearer, h.Spec)
+		if after.RecordCount != before.RecordCount {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("400 pda-malformed MUST not audit; record_count %d → %d", before.RecordCount, after.RecordCount)})
+			return out
+		}
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "malformed-wire PDA → 400 reason=pda-malformed (L-26 enum); no audit record written. crypto-invalid-but-well-formed and decision-mismatch branches require constructing a well-formed-but-wrong-signed PDA — deferred (fixture/design TBD)."})
 		return out
 	}
 	// Two spec-permitted paths depending on impl ordering:

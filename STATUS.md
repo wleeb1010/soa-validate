@@ -4,6 +4,51 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
+
+**This is the M1 exit-gate scoreboard.**
+
+**Done:**
+- **Pin-bumped `5849483 → 8624a7a`** adopting **L-26 §10.3.2 pda-malformed enum move** (403 → 400). Direct root-cause fix for the SV-PERM-22 regression L-24 activation unmasked — spec now aligns status code with the wire-level-JWS-parse semantic. `spec_commit_sha = 8624a7a0ea06a7d667870fb03e68775d24e08c57`, `spec_manifest_sha256 = 6d985d0dc1eae3a511ddff9df533366cf3f34da8f00ae01a0808854c6d14b813`.
+- **SV-PERM-21 → PASS** (flipped after impl wired `resolvePdaVerifyKey` in commit `e59f708`). Full end-to-end PDA happy path: pinned Ed25519 private key signs a canonical-decision for fs__write_file under WorkspaceWrite/Prompt; impl's wired resolver finds the public key by kid `soa-conformance-test-handler-v1.0`; `jose.compactVerify` succeeds; audit chain advances with verified `signer_key_id`.
+- **SV-PERM-22 → PASS** (flipped after L-26 adoption). Malformed-wire PDA → `400 reason=pda-malformed`; audit tail unchanged across the rejection (no audit record written for auth/structural failures).
+- Both remaining branches documented as deferred: crypto-invalid-but-well-formed + decision-mismatch require constructing a shape-valid PDA signed by an untrusted key (or a trusted key over mismatched content) — fixture/design TBD, not blocking M1.
+
+**Final M1 scoreboard (against live impl at `127.0.0.1:7700`, pin `8624a7a`):**
+
+| Test | Path(s) | Result |
+|---|---|---|
+| SV-CARD-01 | vector + live | pass |
+| SV-SIGN-01 | vector + live | pass |
+| SV-BOOT-01 | live happy + 3 V-12 negatives | pass |
+| SV-PERM-01 | 24-cell oracle + audit invariant | pass |
+| HR-01 | vector (positive + 2 semantic-reject fixtures + 4 inline negatives) | pass |
+| HR-02 | — | **skip (M3-deferred per must-map)** |
+| HR-12 | live subprocess (tampered JWS → x5c-missing fail-closed) | pass |
+| HR-14 | live (149-record chain + tamper-at-index-74 detection) | pass |
+| SV-AUDIT-TAIL-01 | live state-adaptive + idempotence | pass |
+| SV-AUDIT-RECORDS-01 | 2-page pagination, 149 records | pass |
+| SV-AUDIT-RECORDS-02 | full §10.5 chain integrity, 149 records | pass |
+| SV-SESS-BOOT-01 | 6 sessions × 2 decide-scope variants | pass |
+| SV-SESS-BOOT-02 | path-a subprocess (ReadOnly card → 403) | pass |
+| SV-PERM-20 | positive + 2 negatives (insufficient-scope, session-bearer-mismatch) | pass |
+| SV-PERM-21 | PDA happy path via L-24 fixture + verified signer | pass |
+| SV-PERM-22 | malformed-wire PDA → 400 pda-malformed (L-26 enum) | pass |
+
+**15 pass / 1 skip / 0 fail. Zero workaround-passes. HR-02 M3-deferred is the only skip and it's spec-authored via `implementation_milestone`.**
+
+**Validator contribution across M1 (final count):**
+- ~60+ unit tests across 13 internal packages.
+- **8 root-cause spec findings surfaced and driven to resolution:** L-09 (URL shorthand), L-12 (JWS `typ`), L-18 (conformance card schema: max_iterations / policyEndpoint / SPKI), L-19/L-22 (403 reason enum inc. `insufficient-scope` rename), L-23 (pda-verify-unavailable 503 branch), L-24 (handler-key fixture gap), L-26 (pda-malformed enum move).
+- **5 validator-side bugs caught in flight** (including a fake-pass the user correctly stopped me from shipping, then the MSYS path translation, the stale-struct round-trip bug, rate-limit cascade, extractFailureReason token priority).
+- Independent §10.3 oracle re-implementation cross-checks impl decisions against a hand-mirrored spec-README 24-cell matrix.
+- Subprocess harness drives V-09 / V-12 / SV-SESS-BOOT-02 path-a.
+- M1 exit-gate CLI + docs + cross-platform CI scaffolds.
+
+**Pin at `8624a7a`. M1 complete.**
+
+---
+
 ## 2026-04-20 (post-M1 — pin at 5849483; SV-PERM-21 handler ready, awaiting impl L-24 adoption)
 
 **Done:**
