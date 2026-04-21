@@ -68,6 +68,13 @@ var Handlers = map[string]Handler{
 	"SV-PERM-19":              handleSVPERM19,
 	"SV-AUDIT-SINK-EVENTS-01": handleSVAUDITSINKEVENTS01,
 	"SV-SESS-STATE-01":        handleSVSESSSTATE01,
+
+	// M2 Week 3 (V2-09b/c) — atomic-write + resume-algorithm crash conformance.
+	"SV-SESS-06": handleSVSESS06,
+	"SV-SESS-07": handleSVSESS07,
+	"SV-SESS-08": handleSVSESS08,
+	"SV-SESS-09": handleSVSESS09,
+	"SV-SESS-10": handleSVSESS10,
 }
 
 func stub(reason string) Handler {

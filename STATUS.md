@@ -21,7 +21,20 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 - M1 IDs stay as they were (handlers unchanged, pin-bump has no M1 regressions).
 - 5 new M2 IDs registered; without a live M2-enabled impl they SKIP with specific diagnostics. These flip green as impl ships — no validator-side change needed.
 
-**Next:** Hold Week 1 through M2-T1a (non-idempotent rejection) + M2-T6 (sink-events endpoint). When impl says ready, I'll re-run the conformance suite, expect the 5 new M2 IDs to flip against a live Runner, and post the Week 1 exit scoreboard here.
+**Also shipped Day 1 afternoon (optional prep while waiting on impl M2-T3):**
+- **V2-09b + V2-09c scaffolding** for the Week 3 crash-recovery matrix — 5 more handlers registered:
+  - `SV-SESS-06` — §12.3 POSIX atomic-write conformance (kill between `COMMITTED_WRITE_DONE` + `DIR_FSYNC_DONE`).
+  - `SV-SESS-07` — §12.3 Windows atomic-write conformance (same logical marker boundaries).
+  - `SV-SESS-08` — §12.5 resume replays pending (kill at `PENDING_WRITE_DONE`, assert idempotent replay post-resume).
+  - `SV-SESS-09` — §12.5 card-drift terminates resume (relaunch with mutated Agent Card card_version; assert `StopReason::CardVersionDrift`).
+  - `SV-SESS-10` — §12.5 step 4 in-flight compensation (kill at `TOOL_INVOKE_START`, assert compensating action fires or `ResumeCompensationGap`).
+- **New `internal/subprocrunner/relaunch.go`** — `RunCrashRecovery(cfg, probe)` composes the two-phase sequence: launch + kill-at-marker + relaunch against same session dir + /ready probe + post-relaunch callback + clean kill. Three unit tests exercise happy-path, marker-never-fires-graceful-skip, and full phase-2 relaunch-binds-HTTP probe via python synthetic markers. All green.
+- Handlers today SKIP with specific diagnostics when `SOA_IMPL_BIN` unset OR `RUNNER_CRASH_TEST_MARKERS` unsupported. Flip automatically when impl ships markers (no validator-side code change required).
+- `SV-SESS-09` additionally flags: spec has no pinned `card_version`-mutated Agent Card fixture yet — handler is wired but will stay SKIP until spec ships the drift fixture (L-29 candidate).
+
+**10 M2 test IDs now wired.** Week 1 target: SV-SESS-05, SV-SESS-11, SV-PERM-19, SV-AUDIT-SINK-EVENTS-01, SV-SESS-STATE-01 (5). Week 3 target: SV-SESS-06..10 (5). All ready to flip as impl ships.
+
+**Next:** Hold Week 1 through M2-T1a (non-idempotent rejection) + M2-T3 (/state) + M2-T6 (sink-events endpoint). When impl says ready, I'll re-run the conformance suite, expect SV-SESS-STATE-01 to flip first (M2-T3 is impl's next task), and post the Week 1 exit scoreboard here.
 
 ---
 
