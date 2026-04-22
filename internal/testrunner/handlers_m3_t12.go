@@ -803,7 +803,7 @@ func handleSVPRIV03(ctx context.Context, h HandlerCtx) []Evidence {
 // Impl b6f5187 ships AH: RUNNER_RETENTION_SWEEP_TICK_MS + RUNNER_RETENTION_SWEEP_INTERVAL_MS
 // env hooks let validator drive a sub-second sweep. Sweep emits a
 // system-log record (category=ContextLoad, code=retention-sweep-ran,
-// session_id=ses_runner_boot_____).
+// session_id=ses_runnerBootLifetime).
 //
 // Probe tries the env-driven subprocess pattern first. Observability
 // currently gated: /logs/system/recent requires session_id filter +
@@ -836,7 +836,7 @@ func handleSVPRIV04(ctx context.Context, h HandlerCtx) []Evidence {
 		// Wait for at least one sweep tick (interval=500ms + buffer).
 		time.Sleep(1200 * time.Millisecond)
 		// Try direct boot-session query with bootstrap bearer.
-		url := fmt.Sprintf("%s/logs/system/recent?session_id=ses_runner_boot_____&category=ContextLoad&limit=50", client.BaseURL())
+		url := fmt.Sprintf("%s/logs/system/recent?session_id=ses_runnerBootLifetime&category=ContextLoad&limit=50", client.BaseURL())
 		req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
 		req.Header.Set("Authorization", "Bearer "+bearer)
 		resp, err := (&http.Client{Timeout: 4 * time.Second}).Do(req)
@@ -846,7 +846,7 @@ func handleSVPRIV04(ctx context.Context, h HandlerCtx) []Evidence {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound {
-			return "boot session ses_runner_boot_____ not registered in sessionStore; /logs/system/recent 404s — Finding AO", false
+			return "boot session ses_runnerBootLifetime not registered in sessionStore; /logs/system/recent 404s — Finding AO", false
 		}
 		if resp.StatusCode == http.StatusForbidden {
 			return "boot session bearer-mismatch; /logs/system/recent 403 — Finding AO", false
@@ -872,7 +872,7 @@ func handleSVPRIV04(ctx context.Context, h HandlerCtx) []Evidence {
 		return []Evidence{{Path: PathLive, Status: StatusPass, Message: msg}}
 	}
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PRIV-04: " + msg + " — retention-sweep-ran log is pinned to boot session_id=ses_runner_boot_____, " +
+		Message: "SV-PRIV-04: " + msg + " — retention-sweep-ran log is pinned to boot session_id=ses_runnerBootLifetime, " +
 			"unreachable via /logs/system/recent because boot session isn't in sessionStore. " +
 			"**Finding AO (impl)**: either (a) register runner-boot session in sessionStore with the bootstrap bearer, " +
 			"or (b) emit retention-sweep-ran under any live session_id, or (c) add an admin-bearer path on /logs/system/recent."}}

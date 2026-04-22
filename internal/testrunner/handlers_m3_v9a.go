@@ -461,27 +461,55 @@ func handleSVCARD10(ctx context.Context, h HandlerCtx) []Evidence {
 		"RUNNER_DEMO_MODE":            "1",
 		"SOA_RUNNER_BOOTSTRAP_BEARER": "svcard10-test-bearer",
 	}
+	bearer := env["SOA_RUNNER_BOOTSTRAP_BEARER"]
 	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
 		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 3 * time.Second})
-		// /ready must be 503 (not 200). launchProbeKill already waited
-		// for /health to respond, so the process is bound.
+		// /ready stays 503 with reason=bootstrap-pending while the Card
+		// precedence readiness source pins the gate (Finding AN: the
+		// precedence violation detail is on /logs/system/recent, not the
+		// /ready body). launchProbeKill already waited for /health 200.
 		resp, err := client.Do(probeCtx, http.MethodGet, "/ready", nil)
 		if err != nil {
 			return "GET /ready: " + err.Error(), false
 		}
-		body, _ := io.ReadAll(resp.Body)
+		readyBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			return fmt.Sprintf("/ready returned 200 with precedence-violation card — §10.3 requires refusal to reach ready; body=%.200q", string(body)), false
+			return fmt.Sprintf("/ready=200 with precedence-violation card — §10.3 refusal not wired; body=%.200q", string(readyBody)), false
 		}
 		if resp.StatusCode != http.StatusServiceUnavailable {
-			return fmt.Sprintf("/ready status=%d (want 503); body=%.200q", resp.StatusCode, string(body)), false
+			return fmt.Sprintf("/ready status=%d (want 503); body=%.200q", resp.StatusCode, string(readyBody)), false
 		}
-		low := strings.ToLower(string(body))
-		if !strings.Contains(low, "precedence") && !strings.Contains(low, "config") {
-			return fmt.Sprintf("/ready 503 body missing precedence/config reason marker: %.200q", string(body)), false
+		// AN + AO: ConfigPrecedenceViolation record written under
+		// BOOT_SESSION_ID; boot session registered in sessionStore so
+		// /logs/system/recent with bootstrap bearer + session_id=
+		// ses_runnerBootLifetime + category=Config yields the record.
+		url := fmt.Sprintf("%s/logs/system/recent?session_id=ses_runnerBootLifetime&category=Config&limit=50", client.BaseURL())
+		logReq, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
+		logReq.Header.Set("Authorization", "Bearer "+bearer)
+		logResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(logReq)
+		if err != nil {
+			return "GET /logs/system/recent: " + err.Error(), false
 		}
-		return fmt.Sprintf("§10.3 precedence violation: /ready=503 with reason marker; body=%.150q", string(body)), true
+		logRaw, _ := io.ReadAll(logResp.Body)
+		logResp.Body.Close()
+		if logResp.StatusCode != http.StatusOK {
+			return fmt.Sprintf("/logs/system/recent status=%d (want 200 via AO boot-session + skipReadinessGate); body=%.200q", logResp.StatusCode, string(logRaw)), false
+		}
+		var parsed struct {
+			Records []struct {
+				Category string `json:"category"`
+				Level    string `json:"level"`
+				Code     string `json:"code"`
+			} `json:"records"`
+		}
+		_ = json.Unmarshal(logRaw, &parsed)
+		for _, r := range parsed.Records {
+			if r.Category == "Config" && r.Level == "error" && r.Code == "ConfigPrecedenceViolation" {
+				return fmt.Sprintf("§10.3 precedence violation (Finding AN): /ready=503 bootstrap-pending + /logs/system/recent has {category=Config, level=error, code=ConfigPrecedenceViolation} record; %d total Config records", len(parsed.Records)), true
+			}
+		}
+		return fmt.Sprintf("no {category=Config, level=error, code=ConfigPrecedenceViolation} record in %d boot-session Config records — Finding AN wiring incomplete", len(parsed.Records)), false
 	})
 	st := StatusFail
 	if pass {

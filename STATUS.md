@@ -4,6 +4,34 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (AN + AO land — +2 flips → 104 pass / 0 fail / 10 skip)
+
+**Scoreboard: 104 pass / 0 fail / 10 skip / 0 error (+2 from 102).** Clean board.
+
+Impl shipped AN (`eec8baf`) + AO (`c763834`). Both auto-unblock with a 1-line probe adjust on each side (the boot session id changed from the placeholder `ses_runner_boot_____` I proposed to the impl's canonical `ses_runnerBootLifetime`).
+
+### Flipped (2)
+
+| Test | Finding | Mechanism |
+|---|---|---|
+| **SV-CARD-10** | AN | Subprocess with L-42 precedence-violation card. `/ready=503 bootstrap-pending` (impl pins readiness while violation persists) + `/logs/system/recent?session_id=ses_runnerBootLifetime&category=Config` returns a `{category=Config, level=error, code=ConfigPrecedenceViolation}` record (impl adds `skipReadinessGate` option on /logs route when precedence violation present, so operators can read through /ready=503). |
+| **SV-PRIV-04** | AO | `/logs/system/recent?session_id=ses_runnerBootLifetime&category=ContextLoad` returns the `retention-sweep-ran` record. AO registers the boot session in sessionStore with the bootstrap bearer, making all boot-lifetime records queryable via the standard §14.5.4 endpoint. |
+
+### Infrastructure note
+
+- Boot session id constant `ses_runnerBootLifetime` (16-char base, matches `SESSION_ID_RE`). Previous placeholder `ses_runner_boot_____` failed regex (trailing underscores, below the `[A-Za-z0-9]{16,}` minimum). Fixed in both SV-CARD-10 and SV-PRIV-04 probes.
+
+### Trajectory refresh
+
+- **Today**: 104 pass / 0 fail / 10 skip (clean)
+- **+ AE (CrashEvent)**: → 105
+- **+ AP/AQ/AR (boot env hooks, impl queue)**: → 108
+- **+ V-10 policy block** (16): → ~124 (crosses ≥120)
+- **+ V-11 + V-12 + V-9e** (14): → ~138
+- **+ V-9b SV-PERM** (21, closer): → ~159
+
+---
+
 ## 2026-04-22 night (V-9c SV-BOOT bulk — +2 flips → 101-102 pass / 1 fail / 11 skip)
 
 **Scoreboard (stable run): 102 pass / 1 fail / 11 skip / 0 error (+2 from 100).** One transient subprocess port flake observed on SV-SESS-BOOT-02 in one run — not persistent.
