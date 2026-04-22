@@ -147,6 +147,25 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
 
+	// M3 Week 4 (V-9b) — SV-PERM-02..18 bulk permission-system coverage.
+	"SV-PERM-02": handleSVPERM02,
+	"SV-PERM-03": handleSVPERM03,
+	"SV-PERM-04": handleSVPERM04,
+	"SV-PERM-05": handleSVPERM05,
+	"SV-PERM-06": handleSVPERM06,
+	"SV-PERM-07": handleSVPERM07,
+	"SV-PERM-08": handleSVPERM08,
+	"SV-PERM-09": handleSVPERM09,
+	"SV-PERM-10": handleSVPERM10,
+	"SV-PERM-11": handleSVPERM11,
+	"SV-PERM-12": handleSVPERM12,
+	"SV-PERM-13": handleSVPERM13,
+	"SV-PERM-14": handleSVPERM14,
+	"SV-PERM-15": handleSVPERM15,
+	"SV-PERM-16": handleSVPERM16,
+	"SV-PERM-17": handleSVPERM17,
+	"SV-PERM-18": handleSVPERM18,
+
 	// M3 Week 4 (V-12) — HR-07/09/10/11 harness regressions. HR-01 wired above;
 	// HR-02/03/14/17 are other tracks; HR-06/08/13/15/16/18 are M4/M5.
 	"HR-07": handleHR07,

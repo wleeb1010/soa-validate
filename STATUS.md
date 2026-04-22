@@ -4,6 +4,64 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-46 + V-9b SV-PERM bulk — 132 pass / 0 fail / 26 skip)
+
+**Scoreboard: 132 pass / 0 fail / 26 skip / 0 error (+4 from 128; board crosses 130).**
+
+Pin: bebc6bd → `aa49770`; manifest `91b49dcd91b36755511df01db8857e1b82b72b9ed4383e37160d25f393deb93f` byte-verified. L-46 closes Findings AY (denylist AGENTS.md §7.2-compliant rewrite) + AZ (4 card variants gain `self_improvement.entrypoint_file="agent.py"`).
+
+### Flipped (L-46)
+
+| Test | Finding | Mechanism |
+|---|---|---|
+| **SV-REG-04** | AY | Denylist fixture now §7.2-compliant; AT parser accepts, `## Agent Type Constraints → ### Deny` block honored → 4 tools in /tools/registered |
+
+### Still regressed (1 new impl gap)
+
+| Test | Finding | Ask |
+|---|---|---|
+| **SV-AGENTS-08** | **BA (impl)** | L-46 AZ added `self_improvement.entrypoint_file` to cards, but impl `start-runner.ts:245` calls `validateAgentsMdBody(resolved)` WITHOUT threading `cardEntrypointFile` through. The entrypoint-match gate at `agents-md-validator.ts:248` is never reached. Fix: pass `{cardEntrypointFile: card.self_improvement?.entrypoint_file}` to `validateAgentsMdBody`. |
+
+### V-9b SV-PERM-02..18 landed (+3 flipped, 14 routed)
+
+| Test | Result | Mechanism / Finding |
+|---|---|---|
+| **SV-PERM-05** | PASS (live) | `auditchain.VerifyChain()` on /audit/records — %d records verified, prev_hash continuity from GENESIS |
+| **SV-PERM-11** | PASS (vector) | Pinned PDA fixture parses with alg=EdDSA (allowed set {EdDSA, ES256}); full enrollment-time RS256 rejection deferred to BG handler-enrollment surface |
+| **SV-PERM-18** | PASS (vector) | CRL fresh.json validates against crl.schema.json; runtime-stale path composes with BE handler-CRL extension |
+| SV-PERM-02 | skip / AW | §10.3 precedence tighten-only — composes with HR-11 precedence-guard axis 3 |
+| SV-PERM-03/04 | skip / **BB** | §10.4 escalation-timeout env hook missing |
+| SV-PERM-06/07 | skip / **BC** | §10.5 WORM sink model (in-memory test-hook + external-timestamp field) |
+| SV-PERM-08 | skip / **BD** | §10.6 90d key-age — needs SOA_HANDLER_ENROLLED_AT clock-injection |
+| SV-PERM-09/14/15 | skip / **BE** | §10.6 handler CRL revocation — extend AQ watcher to cover handler-kid |
+| SV-PERM-10 | skip / **BF** | §10.6 24h rotation overlap — two-kid enrollment fixture |
+| SV-PERM-12/13 | skip / **BG/BH** | §10.6 enrollment surface + keystore introspection |
+| SV-PERM-16 | skip / **BI** | §10.5 retention tiers (DFA 365d / others 90d) — per-record retention_class field |
+| SV-PERM-17 | skip / **BJ** | §10.5 audit-reader scope separation — POST /audit/reader-tokens |
+
+### V-12 HR diagnostics (sections + M3 vs M5 scoping for user's routing call)
+
+| Test | Spec section | Missing surface | M3 or M5? |
+|---|---|---|---|
+| **HR-07** | §11.2 agentType=explore restricts tool pool + §15.5 harness regression | Runtime rejection at `/permissions/decisions` when Mutating tool called from agentType=explore session (decisions-route needs `{error:PermissionDenied, reason:agent-type-insufficient}` branch) | **M3** — Tool Pool assembly is M3; this is the decisions-route companion enforcement path |
+| **HR-09** | §9.3 `=== EDITABLE SURFACES ===` markers + §9.1 diff-validator | Diff-validator that rejects bytes outside EDITABLE SURFACES span (pure function — no SI runtime needed) | **M3 testable** — the VALIDATOR is pure logic on a diff + marker bytes; full iteration runtime is M5, but the check-a-diff surface is M3-scoped per spec §9.3 "harness MUST reject any diff that modifies bytes outside the EDITABLE SURFACES span" |
+| **HR-10** | §9.1 `/tasks/` immutable + §24 `ImmutableTargetEdit` | Same diff-validator as HR-09, /tasks/ enumerated as immutable target | **M3 testable** — same as HR-09 (validator is pure) |
+| **HR-11** | §10.3 step 3 "toolRequirements MAY only tighten: AutoAllow → Prompt → Deny. Loosening rejected with ConfigPrecedenceViolation" | precedence-guard.ts axis 3 (activeMode × toolRequirements) — a tool's resolved_control MUST NOT exceed what activeMode allows | **M3** — §10.3 resolver is M1/M2 territory; the precedence-guard already catches axis 1 (agentType × activeMode) and axis 2 (denylist × toolReqs), just missing axis 3 |
+
+**Recommendation:** HR-07/09/10/11 are all M3-scoped per spec anchors above. HR-09/10 in particular are VALIDATOR logic (pure function on a diff) that doesn't need the M5 SI runner — same pattern as how SV-ENC-05 tests JCS without needing the runtime. No M5 retag needed. Findings remain AV (HR-07) / AX (HR-09 + HR-10 bundled — same diff-validator) / AW (HR-11).
+
+### Trajectory refresh
+
+- **Today**: 132 pass / 0 fail / 26 skip
+- **+ BA (entrypoint gate wiring)**: → 133 (SV-AGENTS-08)
+- **+ AE (CrashEvent)**: → 134
+- **+ AV/AW/AX (HR impl surface)**: → ~138
+- **+ V-9b SV-PERM findings BB..BJ**: +8 possible flips if impl ships escalation hook + WORM sink + handler CRL + enrollment surface
+
+M3 exit forecast on this Windows host: **~140 realistic** (AE + BA + AV/AW/AX + a subset of V-9b findings); extends further as impl keeps shipping.
+
+---
+
 ## 2026-04-22 night (AP/AQ/AR/AT all landed + V-11 + V-9c real probes — 128 pass / 1 fail / 12 skip)
 
 **Scoreboard: 128 pass / 1 fail / 12 skip / 0 error (+8 from 120).**
