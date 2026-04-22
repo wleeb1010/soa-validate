@@ -4,6 +4,30 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (Findings Q/R/U land — SV-BUD-07 flips; Q partial / U needs env hook)
+
+**Scoreboard: 69 pass / 1 fail / 10 skip / 0 error (+1 from 68).**
+
+Impl shipped Findings Q (billing_tag propagation) + R (BillingTagMismatch gate) as `42a63b4` and Finding U (consolidation scheduler) as `91a975d`. Validator-side conversions:
+
+### Flipped
+
+- **SV-BUD-07 → PASS.** POST /sessions with `billing_tag="svbud07-deliberately-wrong-tag"` (card is "conformance-test") → 403 `{error:"BillingTagMismatch"}` per `sessions-route.ts:213–236`. Clean single-request probe; no subprocess needed.
+
+### Sharpened skip diagnostics (remaining gaps routed)
+
+- **SV-BUD-05 → skip (Q-partial).** OTel surface ✓ (`/observability/otel-spans/recent.spans[].resource_attributes["soa.billing.tag"]` = card.tokenBudget.billingTag, verified live). Audit + events still gapped: impl deliberately omits billing_tag from audit rows per `decisions-route.ts:710` note — `audit-records-response.schema.json` has `additionalProperties:false`, so embedding would (a) break the wire schema and (b) desync the hash chain. **Spec-side ask**: extend `audit-records-response.schema.json` (and §14.1.1 PermissionDecision payload schema) to allow optional `billing_tag` field; then impl can embed at write time and validator flips. Impl offers session-join path today (audit.session_id → sessions.billing_tag).
+
+- **SV-MEM-05 → skip (U-follow-up).** Finding U shipped `ConsolidationScheduler` with 5-min tick + 24h elapsed + 100-note threshold defaults; no env override. Validator can't wait 24h or drive 100 writes (write_memory removed from spec's five-tool set per L-38). **Impl-ask**: accept `RUNNER_CONSOLIDATION_TICK_MS` + `RUNNER_CONSOLIDATION_ELAPSED_MS` env overrides (production-guard pattern); validator will spawn subprocess with tick=100ms, wait ~1s, observe consolidate_memories call in memmock CallLog + a `/logs/system/recent` outcome record.
+
+- **SV-MEM-06 → still fail (Finding V field-name mismatch unresolved).** Diagnostic unchanged from prior pass: impl reads `card.memory.default_sharing_scope`, spec §7.318 + L-39 fixture use canonical `memory.sharing_policy`. Impl `start-runner.ts:606` needs one-word swap.
+
+### HR-06 — not unblocked by Q alone
+
+HR-06 (compaction integrity: post-compaction conversation prefix-equivalent + memory push) depends on real LLM dispatch + compaction trigger — same class as SV-STR-11. Q wires billing_tag but doesn't unlock compaction. This is M4 streaming scope; recommend M3→M4 retag.
+
+---
+
 ## 2026-04-21 (L-39 adopted; SV-BUD-02 flips; SV-MEM-06 surfaces field-name mismatch)
 
 **Pin-bumped 39e376e → a180915.** L-39 ships two conformance card fixture variants I asked for after Findings O + V landed their card-driven paths. Manifest `23f4228b…7337` verified byte-for-byte. New specvec constants `ConformanceCardLowBudget` + `ConformanceCardMemoryProject`.

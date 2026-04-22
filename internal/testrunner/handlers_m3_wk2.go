@@ -133,8 +133,11 @@ func handleSVBUD03(ctx context.Context, h HandlerCtx) []Evidence {
 func handleSVBUD04(ctx context.Context, h HandlerCtx) []Evidence {
 	return budgetPending(h, "SV-BUD-04", "§13 cached input counted at 10%. Finding P shipped — TurnRecord now carries prompt_tokens_cached + completion_tokens_cached, BudgetState accumulates the totals, /budget/projection.cache_accounting exposes them. But M3 decisions-route calls recordTurn with only {actual_total_tokens: 512} (decisions-route.ts:757); cached fields aren't fed anywhere in the live path because M3 has no LLM dispatcher. **Impl-side ask**: accept synthetic cached-token values via the /permissions/decisions body (optional `prompt_tokens_cached` + `completion_tokens_cached` request fields) OR a test-only env hook, so validator can drive {total=1000, prompt_cached=500} turns and assert projection applies the 10% ratio to the cached portion.")
 }
+// SV-BUD-05: §13 billingTag present on OTel resource + audit record + events.
+// Finding Q (42a63b4) delivers OTel surface; audit+events paths blocked
+// on spec schema constraints.
 func handleSVBUD05(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-05", "§13 billingTag present on OTel resource + audit record + events. **Zero grep matches for billing_tag / billingTag in impl src** — the primitive is not implemented anywhere. Spec requires it in the Agent Card manifest, session bootstrap, audit record fields, and OTel resource attributes. **Impl-side ask: implement billing_tag end-to-end: (1) bootstrap accepts `billing_tag` field, (2) audit records carry `billing_tag`, (3) /events/recent events carry `billing_tag` payload field, (4) OTel resource sets `soa.billing.tag` (§14.4 normative).**")
+	return budgetPending(h, "SV-BUD-05", "§13 billing_tag on OTel resource + audit records + events. **Partial after Finding Q**: OTel surface ✓ — /observability/otel-spans/recent returns resource_attributes[\"soa.billing.tag\"] = card.tokenBudget.billingTag (verified live). Audit + events still gapped: impl deliberately omits billing_tag from audit rows per decisions-route.ts:710 comment — `audit-records-response.schema.json` has additionalProperties:false, and adding billing_tag to the row would break the wire schema AND desync the hash chain (consumers recompute this_hash from row fields). **Spec-side ask**: extend audit-records-response.schema.json to allow optional `billing_tag` field on each record; then impl can embed it at write time and validator flips this test. PermissionDecision StreamEvent payload similarly needs a §14.1.1 schema allowance. Impl offers a session-join path today (audit.session_id → sessions.billing_tag) but the spec assertion asks for direct embedding.")
 }
 // SV-BUD-06: §13 StopReason closed enum — /budget/projection exposes
 // `stop_reason_if_exhausted` as a const "BudgetExhausted" per schema.
@@ -150,8 +153,55 @@ func handleSVBUD06(ctx context.Context, h HandlerCtx) []Evidence {
 		return ""
 	}, "§13 StopReason closed enum: /budget/projection.stop_reason_if_exhausted=\"BudgetExhausted\"")
 }
+// SV-BUD-07: §13 session billing_tag ≠ card billing_tag → 403
+// BillingTagMismatch. Finding R (42a63b4) wired the gate at
+// sessions-route.ts:213–236. Probe: POST /sessions with billing_tag
+// differing from card tokenBudget.billingTag ("conformance-test" on
+// the live runner), assert 403 {error:"BillingTagMismatch"}.
 func handleSVBUD07(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-07", "§13 Session billing_tag ≠ Agent Card billing_tag → BillingTagMismatch. **Zero grep matches for BillingTagMismatch in impl src** — neither the field plumbing nor the mismatch-detection gate exist. Paired with SV-BUD-05's billing_tag ask; once bootstrap accepts a `billing_tag` field and the Agent Card loader exposes the card's billing_tag, the mismatch path becomes: bootstrap with differing tag → 403 BillingTagMismatch. **Impl-side ask: after billing_tag plumbing lands, add the mismatch gate at POST /sessions.**")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §24 BillingTagMismatch gate at POST /sessions"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
+		return out
+	}
+	// Baseline: mint with matching tag first (proves bootstrap path works
+	// on this runner before we exercise the 403 arm) — optional, so skip
+	// straight to the mismatch request with an explicit bad tag.
+	body := `{"requested_activeMode":"ReadOnly","user_sub":"svbud07","request_decide_scope":false,"billing_tag":"svbud07-deliberately-wrong-tag"}`
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		h.Client.BaseURL()+"/sessions", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusForbidden {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("POST /sessions status=%d (want 403 with body error=BillingTagMismatch); body=%.200q", resp.StatusCode, string(raw))})
+		return out
+	}
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &parsed)
+	if parsed.Error != "BillingTagMismatch" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("403 returned with error=%q; want \"BillingTagMismatch\" per §24 + Finding R; body=%.200q", parsed.Error, string(raw))})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: "SV-BUD-07: POST /sessions with billing_tag != card.tokenBudget.billingTag refused with 403 error=BillingTagMismatch per §24 + Finding R wiring"})
+	return out
 }
 
 // SV-BUD-PROJ-01: schema validity on GET /budget/projection/<session_id>.

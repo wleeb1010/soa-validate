@@ -363,11 +363,14 @@ func getSystemLogRecentRaw(ctx context.Context, c *runner.Client, sessionID, bea
 	return raw, resp.StatusCode, nil
 }
 
-// SV-MEM-05: consolidate_memories trigger — impl has no time-based or
-// count-based consolidation trigger in M3 scope (the consolidate tool
-// is plumbed but never invoked without LLM dispatch).
+// SV-MEM-05: §8.4 consolidate_memories invoked at least once per 24h
+// or after 100 new notes. Finding U (91a975d) wired the ConsolidationScheduler
+// with 5-min tick + 24h elapsed-time trigger + 100-note threshold. But
+// no env override ships for the tick interval or note threshold —
+// validator can't wait 24h or drive 100 writes (write_memory isn't in
+// the spec's five-tool set per L-38).
 func handleSVMEM05(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-05", "§8.2 consolidate_memories invoked within 24h or after 100 new notes. Impl's MemoryMcpClient has the consolidateMemories method plumbed but nothing calls it — no scheduler, no per-turn counter. M3 scope stops before LLM dispatch + turn-counter wiring. **Impl-side ask**: add a consolidation trigger — simplest: background timer (24h default, env-overridable for test) that invokes consolidateMemories across all active sessions; second: note-count counter per session that fires at >=100 writes.")
+	return memoryPending(h, "SV-MEM-05", "§8.4 consolidate_memories triggered within 24h or after 100 notes. Finding U shipped the ConsolidationScheduler (memory/consolidation-scheduler.ts) with defaults: 5-min tick, 24h elapsed-time, 100-note threshold. **Impl-ask (follow-up to U)**: accept `RUNNER_CONSOLIDATION_TICK_MS` + `RUNNER_CONSOLIDATION_ELAPSED_MS` + `RUNNER_CONSOLIDATION_NOTE_THRESHOLD` env overrides (production-guard pattern, same as §11.3.1 dynamic-reg hook) so validator can spawn a subprocess with tick=100ms + elapsed=500ms, wait ~1s, and observe a consolidate_memories call in memmock CallLog + an outcome record in /logs/system/recent. Note-count path stays untestable without write_memory (removed from spec's five-tool set per L-38), so elapsed-time is the testable arm.")
 }
 
 // SV-MEM-06: card-driven sharing_scope propagation. Finding V + L-39
