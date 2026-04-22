@@ -854,6 +854,49 @@ Wall-clock for the full 80-test suite against live `:7700`: **22s**.
 
 ---
 
+## 2026-04-22 (M3 Week 2 — shared-session pacing; infra fix +3 greens; stub-skip triage)
+
+### Shared-session bootstrap pacing (infra-first per user prioritization)
+
+Problem surfaced: SV-BUD-PROJ-02 flapped to SKIP on `status=429`. Root cause: impl's `BootstrapLimiter` on POST /sessions is **30 rpm per bootstrap bearer** (hardcoded in `sessions-route.ts:113`). At M3 scale (~40+ handlers all minting sessions against the same bearer), the limiter trips.
+
+Answered user's Q: `/budget/projection` is **120 rpm** per-bearer (read-bearer), `/tools/registered` is 60 rpm, `/sessions/<id>/state` is 120 rpm — NOT per-endpoint-differently-limited. The chokepoint is POST /sessions itself at 30 rpm per bootstrap bearer.
+
+Fix: `sharedBootstrap()` in `handlers_m2.go` — process-wide cache. Observability-read probes share one DFA+decide-scope session cached for 55min. Crash-recovery + session-state-isolation tests still call `m2Bootstrap()` for fresh sessions. Migrated: SV-MEM-STATE-01/02, SV-BUD-PROJ-01/02, SV-REG-OBS-01/02, SV-BUD-01/06, SV-REG-01/02/05.
+
+**+3 M3 flips recovered from rate-limit cascade. No impl change required.**
+
+### Scoreboard (pin `5e97277`, 80 IDs) — **43 pass / 0 fail / 37 skip / 0 error**
+
+M3 live-green: **13**.
+
+### Stub-skip triage (15 remaining M3 handlers)
+
+Honest assessment of what's tractable vs needs real infrastructure:
+
+| Test | Tractable via | Estimated work |
+|---|---|---|
+| SV-BUD-02 Pre-call halt | Drive turns past max budget; observe `BudgetExhausted` decision + `SessionEnd` event | Medium — needs actual turn driving |
+| SV-BUD-03 Mid-stream cancel | Same as -02 + mid-flight observation | Medium |
+| SV-BUD-04 Cache accounting | `cache_accounting.prompt_tokens_cached` populated after turns | Small — needs ≥1 real turn |
+| SV-BUD-05 Billing tag | Observe `billing_tag` in audit record | Small — needs a turn |
+| SV-BUD-07 BillingTagMismatch | Mismatch between card `billing_tag` and session ask → 403 | Small — needs fixture |
+| SV-REG-03 Pool pinned | Subprocess w/ `SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION=<triggerfile>`; mint session, write tool to trigger, read `/tools/registered` post-write, verify session's tool_pool_hash unchanged | Medium — subprocess + trigger-file plumbing |
+| SV-REG-04 AGENTS.md deny-list | Needs AGENTS.md deny-list fixture in spec | Blocked — fixture not shipped |
+| SV-HOOK-01..08 | Subprocess w/ `SOA_PRE_TOOL_USE_HOOK` / `SOA_POST_TOOL_USE_HOOK` pointing at hook scripts generated at test time | Heavy — 8 handlers × scripts + subprocess harness |
+
+Roughly: 5 "small" conversions, 3 "medium" infra-demanding, 8 "heavy" hook-harness scaffolded per-test.
+
+### Plan for next session
+
+1. Ship turn-driving helper that exercises SV-BUD-04/05/07 (3 small wins).
+2. Ship dynamic-reg subprocess for SV-REG-03 (1 medium).
+3. Ship hook-harness + 8 SV-HOOK implementations (1 big infra chunk).
+
+Target after next iteration: **15 → 21+ M3 live-greens** (depending on which paths have live impl behavior). Validator work-at-rest checkpoint for tonight.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**
