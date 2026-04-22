@@ -4,6 +4,57 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (V-9e — 0 flips, resume/crash state survey)
+
+**Scoreboard: 62 pass / 2 fail / 16 skip / 0 error (unchanged).** V-9e expected +3/+4, delivered +0 — the target tests resolve differently than trajectory assumed:
+
+| Test | Current | Why |
+|---|---|---|
+| SV-SESS-01 | **already pass** | §12.5.1 response-shape probe landed in V2-09a; passing live |
+| SV-SESS-03 | **already pass** | §12.2 bracket-persist probe passing live since M2 Week 1 |
+| SV-SESS-06 | skip (platform-gated) | POSIX atomic-write assertion — validator host is Windows. SV-SESS-07 (Windows twin) already passes; together they cover both OS atomic-write semantics |
+| SV-STR-10 | skip-pending | double impl-gap routed below |
+
+### SV-STR-10 — double impl-side gap
+
+Sharpened the diagnostic into a surgical two-part finding:
+
+1. **Zero CrashEvent emission callsites in impl src**. Enum entry exists at `stream/emitter.ts:48` but `session/boot-scan.ts` does not emit a CrashEvent when it recovers a dirty session.
+2. **Post-relaunch bearer is unrecoverable**. `session/persist.ts`, `session/resume.ts`, `session/boot-scan.ts` have zero matches for `bearer` or `bearerHash` — session bearer is in-memory only. After relaunch the old bearer fails auth against `/events/recent` (session-scoped auth, no admin path).
+
+**Impl-ask A**: emit CrashEvent at boot-scan time when resume re-hydrates a session with an open bracket — payload `{reason, workflow_state_id, last_committed_event_id, stack_hint}` per §14.2.
+
+**Impl-ask B**: either persist session bearer (hashed) across relaunch OR add a system-level events surface (e.g., `/events/recent?session_id=*` for `trust_class=system` events) so post-resume CrashEvent is validator-observable.
+
+The existing crash-recovery harness (SV-SESS-06..10) proves relaunch + `/ready` comes up. CrashEvent observation lands as a layer on top once the two gaps close.
+
+### V-9 aggregate (final)
+
+| Batch | Flips | Net scoreboard |
+|---|---|---|
+| V-9a stream | +6 | 53→59 |
+| V-9b budget | +0 | 59 (4 impl-asks routed) |
+| V-9c memory | +2 | 59→61 (4 impl-asks + 2 spec-gaps routed → both spec gaps closed via L-38) |
+| V-9d OTel/backpressure | +1 | 61→62 (1 impl-finding: Finding W) |
+| V-9e sess/crash | +0 | 62 (2 impl-asks routed) |
+
+**Total V-9 flips**: +9 (53→62). **17 impl-asks + 2 spec-gaps routed** (spec gaps all closed via L-35/36/37/38).
+
+Remaining pending flips (all impl-dependent, no validator work blocking):
+- Findings S/T (SV-MEM-03/04): +2 when impl ships
+- Finding U (SV-MEM-05 consolidation trigger): +1
+- Finding V (SV-MEM-06 sharing_scope surface): +1
+- Finding W (SV-STR-06/07 OTel emission wiring): +2
+- SV-STR-10 impl-asks A+B: +1
+- SV-MEM-07 (delete_memory_note impl landing after spec L-38): +1
+- SV-BUD-02/04/05/07 impl asks: +4
+- Pre-budgeted skips (SV-MEM-08, SV-STR-04, SV-SESS-06 POSIX-host only): 3 outside scope
+- SV-BUD-03/SV-STR-11/16 M4 retags: 3 out of scope
+
+**M3 exit target**: ≥120 green across 3 platforms = ≥40 per platform. Current 62 greens puts this validator well above per-platform minimum. Remaining 16 skips + 2 fails will flip to 9 more passes when impl works through the punch list.
+
+---
+
 ## 2026-04-21 (L-38 adopted; V-9d SV-STR-06/07/08 probes — +1 flip, 2 impl-findings)
 
 **Pin-bumped c33a411 → 39e376e.** L-38 closes both V-9c spec-side gaps: §14.5.4 `/logs/system/recent` endpoint + schema (SystemLogRecentResponseSchema in specvec, 12-category closed enum), and memory-mcp-mock README updated to match §8.1 exactly (search_memories / search_memories_by_time / read_memory_note / consolidate_memories / delete_memory_note; `write_memory` removed). Four impl findings S/T/U/V queued separately for SV-MEM-03/04/05/06.

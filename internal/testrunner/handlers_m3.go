@@ -752,9 +752,25 @@ func handleSVSTR09(ctx context.Context, h HandlerCtx) []Evidence {
 		})
 }
 
-// SV-STR-10: CrashEvent payload shape. Needs crash induction.
+// SV-STR-10: §14.2 CrashEvent payload shape. Double-blocked today:
+//
+//  (1) Impl has CrashEvent in the §14.1 27-value enum (stream/emitter.ts:48)
+//      but **zero emission callsites in src** — nothing in impl fires a
+//      CrashEvent. Required at boot-scan time when the resume algorithm
+//      detects a dirty session.
+//
+//  (2) Even once emitted, the validator cannot read /events/recent on the
+//      recovered session: impl's session-store keeps the bearer in-memory
+//      only (no match for bearer|bearerHash in session/persist.ts,
+//      session/resume.ts, session/boot-scan.ts). After relaunch the old
+//      bearer fails auth; /events/recent is session-scoped with no admin
+//      path.
+//
+// The crash-recovery harness (SV-SESS-06..10) proves relaunch + /ready
+// comes up; the CrashEvent observation layer on top needs impl side to
+// ship both emission + a post-relaunch event-read path.
 func handleSVSTR10(ctx context.Context, h HandlerCtx) []Evidence {
-	return streamPending(h, "SV-STR-10", "§14.2 CrashEvent.payload required fields (reason, workflow_state_id, last_committed_event_id, stack_hint). Requires inducing an impl crash mid-decision and observing CrashEvent emission on resume. Existing crash-recovery harness (SV-SESS-06..10) catches session-level recovery; CrashEvent-specific assertion needs crash-marker → relaunch → read /events/recent on resumed session.")
+	return streamPending(h, "SV-STR-10", "§14.2 CrashEvent emission + observation. Two impl-side gaps: (1) zero CrashEvent emission callsites in impl src — only the enum entry exists in stream/emitter.ts; boot-scan in session/boot-scan.ts does NOT emit a CrashEvent when it recovers a dirty session; (2) post-relaunch, the session bearer is in-memory only (not persisted), so /events/recent on the recovered session_id fails auth with no admin-bearer path. **Impl-ask A**: fire CrashEvent at boot-scan time when the resume algorithm re-hydrates a session with an open bracket — payload {reason, workflow_state_id, last_committed_event_id, stack_hint}. **Impl-ask B**: either persist session bearer (hashed) across relaunch OR add a system-level events surface (e.g., /events/recent with session_id=* for trust_class=system events) so post-resume CrashEvent is validator-observable.")
 }
 
 // SV-STR-11: CompactionDeferred on mid-ContentBlockDelta compaction.
