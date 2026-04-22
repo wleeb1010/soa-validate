@@ -4,6 +4,50 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (L-35 adopted — hook lifecycle observability + AGENTS.md fixture; pin bumped to 038ba1b)
+
+**Done:**
+- **Pin-bumped `5e97277 → 038ba1b`** adopting **L-35 §14.1 enum 25→27 + AGENTS.md denylist fixture**. `spec_commit_sha = 038ba1bdf27db2141b985655272f033f820d6f2a`, `spec_manifest_sha256 = 593e8de70992a5733d15ad44dfa0eaeccc6a191d7bd22c37a207b07e615c3603`. MANIFEST.json bytes verified byte-for-byte against user-claimed SHA. Pin-bump reasoning: two root-cause fixes I routed to spec from M3 execution findings land here — (1) SV-HOOK-07 adds PreToolUseOutcome + PostToolUseOutcome to §14.1 closed enum per §19.4 errata with payload $defs carrying outcome + digest_before/after so validator can observe replace_args/replace_result via stream; (2) SV-REG-04 dual gap: §11.2.1 adds SOA_RUNNER_AGENTS_MD_PATH env-var test hook and `test-vectors/agents-md-denylist/{AGENTS.md,tools-with-denied.json,README.md}` ships as pinned fixture.
+- **`internal/testrunner/handlers_m3_hooks.go` — 4 stub-skip handlers converted to real probes:**
+  - **SV-HOOK-05** — Pre hook emits `{"replace_args":…}` stdout; probe polls `/events/recent?session_id=<sid>` post-decision and asserts PreToolUseOutcome event with `outcome=replace_args` + `args_digest_before != args_digest_after`. Clean FAIL today with diagnostic "no PreToolUseOutcome event … Impl has not wired hook-outcome emission." Flips to PASS when impl ships wiring (L/M/N + SV-HOOK-07 hooks-wiring-and-emission per spec-session routing).
+  - **SV-HOOK-06** — Post hook emits `{"replace_result":…}`; same observation pattern on PostToolUseOutcome with `output_digest_before != output_digest_after`.
+  - **SV-HOOK-07** — Pre + Post exit-0 both; probe asserts sequence monotonicity `PreToolUseOutcome.sequence < PostToolUseOutcome.sequence` plus all three lifecycle events (PermissionDecision, PreToolUseOutcome, PostToolUseOutcome) present. Audit/Persist phase has no dedicated §14.1 event type so the assertion stays on the hook-observable subset.
+  - **SV-HOOK-08** — stays skip-pending with precise diagnostic: `HookReentrancy` detection has zero grep matches in impl src; needs impl-side hook-context tagging, `SessionEnd.stop_reason=HookReentrancy` emission, session-terminate path.
+  - Shared helpers added: `fetchRecentEvents`, `findOutcomeEvent`, `firstSequence`, `summarizeTypes`, `shortDigest` — reusable across future stream-based assertions.
+- **`internal/testrunner/handlers_m3_wk2.go` — SV-REG-04 stub replaced** with real subprocess probe: spawn impl with `SOA_RUNNER_AGENTS_MD_PATH=<spec>/test-vectors/agents-md-denylist/AGENTS.md` + `RUNNER_TOOLS_FIXTURE=<spec>/test-vectors/agents-md-denylist/tools-with-denied.json`, bootstrap session, GET `/tools/registered`, assert `tools[].length == 4` (5 fixture minus 1 denied) and `fs_write_dangerous` absent. Clean FAIL today: "tools[] still contains fs_write_dangerous; §11.2 AGENTS.md deny-list not subtracted. Impl has not shipped §11.2.1 AGENTS.md loader." Flips to PASS on impl-side loader landing.
+- `go vet ./...` clean; `go build ./cmd/soa-validate` green; `go test ./internal/musmap/...` green (230-test catalog unchanged).
+
+### Scoreboard (post-pin-bump, pre-impl-wiring)
+
+Baseline against live `:7700` before my rewires: **47 pass / 0 fail / 1 error / 32 skip**. Finding K partial flip confirmed — SV-BUD-01 + SV-BUD-06 green; SV-BUD-02/03/04/05/07 still skip (those are still in my `budgetPending` stubs, not impl's fault).
+
+Post-rewire the four touched handlers flipped `skip → fail` with precise impl-gap diagnostics (correct validator behavior per gap-surfacing rule):
+
+| Test | Before | After | Gap (impl owes) |
+|---|---|---|---|
+| SV-HOOK-05 | skip | fail | wire `PreToolUseOutcome` emission on Pre hook outcome |
+| SV-HOOK-06 | skip | fail | wire `PostToolUseOutcome` emission on Post hook outcome |
+| SV-HOOK-07 | skip | fail | emit both outcome events so sequence monotonicity can be asserted |
+| SV-REG-04 | skip | fail | wire `SOA_RUNNER_AGENTS_MD_PATH` loader + §11.2 deny-list subtraction |
+
+### Note on the run's overall scoreboard
+
+The end-to-end run I kicked off immediately after the rewires shows `pass=20 / fail=5 / skip=48 / error=7`, but that is **not** a regression from my changes — the live `:7700` impl died mid-run from an unrelated `FATAL ToolPoolStale reason=idempotency-retention-insufficient` refusal in `logs/runner.log` (fixture path pointed at `tool-registry-m2/tools.json`, which still carries `non_compliant_ephemeral_tool` for the SV-SESS-11 combined-fixture arm — impl's startup guard refused to open the listener). Every downstream `connectex: No connection could be made` on SV-PERM-01 / HR-02 / SV-SESS-BOOT-01 / SV-PERM-20 / SV-PERM-21 traces to that `:7700` death, not to any validator-side code. Before `:7700` died the baseline was **47 pass**; post-rewire the four flipped handlers replace 4 skips with 4 precise fails.
+
+### Expected trajectory after impl ships hook-wiring (L/M/N + SV-HOOK-07 emission) + AGENTS.md loader
+
+- SV-HOOK-05 / SV-HOOK-06 / SV-HOOK-07 → PASS once `/permissions/decisions` path emits `PreToolUseOutcome` + `PostToolUseOutcome` with populated `digest_before`/`digest_after` fields.
+- SV-REG-04 → PASS once impl reads `SOA_RUNNER_AGENTS_MD_PATH`, parses `## Agent Type Constraints → ### Deny`, and subtracts denied tool names from the per-session tool pool before `/tools/registered` surfaces.
+- SV-HOOK-08 stays skip until impl wires `HookReentrancy` detection (no validator-side blocker).
+
+### Note on spec push state
+
+At pin-bump time local `038ba1b` was 1 commit ahead of origin/main on the spec repo; the user pushed shortly after and I verified origin resolves `038ba1b` with MANIFEST bytes matching. No re-bump needed.
+
+**Handing back to impl-session:** the four failing handlers give exact observation surfaces. Wiring `PreToolUseOutcome`/`PostToolUseOutcome` emission at the decisions-route post-hook call site (L/M/N queued item) + loading `SOA_RUNNER_AGENTS_MD_PATH` at Tool-Registry init (SV-REG-04 queued item) → 4 immediate flips on next `:7700` bounce.
+
+---
+
 ## 2026-04-21 (M2 Week 1 Day 1 — foundation landed; pin bumped to 507eeb1)
 
 **Done:**

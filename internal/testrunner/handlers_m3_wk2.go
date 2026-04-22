@@ -390,8 +390,77 @@ func handleSVREG03(ctx context.Context, h HandlerCtx) []Evidence {
 	}
 	return out
 }
+// SV-REG-04: AGENTS.md deny-list subtraction. Spawn impl subprocess with
+// SOA_RUNNER_AGENTS_MD_PATH pointing at the pinned denylist fixture
+// (L-35 spec, test-vectors/agents-md-denylist/AGENTS.md) and
+// RUNNER_TOOLS_FIXTURE pointing at tools-with-denied.json. Assert
+// GET /tools/registered.tools[] excludes fs_write_dangerous.
 func handleSVREG04(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-04", "§11 deny-list from AGENTS.md. Needs AGENTS.md deny-list fixture.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §11.2 AGENTS.md deny-list via SOA_RUNNER_AGENTS_MD_PATH + pinned fixture"}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-REG-04: SOA_IMPL_BIN unset; cannot spawn subprocess with §11.2.1 AGENTS.md hook"})
+		return out
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	agentsMD := filepath.Join(specRoot, "test-vectors", "agents-md-denylist", "AGENTS.md")
+	toolsFixture := filepath.Join(specRoot, "test-vectors", "agents-md-denylist", "tools-with-denied.json")
+	if _, err := os.Stat(agentsMD); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-REG-04: pinned fixture " + agentsMD + " missing; spec pin may be pre-L-35"})
+		return out
+	}
+	port := implTestPort()
+	bearer := "svreg04-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                 strconv.Itoa(port),
+		"RUNNER_HOST":                 "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":        filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":         filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":        toolsFixture,
+		"RUNNER_DEMO_MODE":            "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER": bearer,
+		"SOA_RUNNER_AGENTS_MD_PATH":   agentsMD,
+	}
+
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 3 * time.Second})
+		_, sbearer, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap failed: status=%d err=%v (impl may not have shipped §11.2.1 loader yet)", status, err), false
+		}
+		body, code, err := getToolsRegisteredRaw(probeCtx, client, sbearer)
+		if err != nil {
+			return "GET /tools/registered: " + err.Error(), false
+		}
+		if code != http.StatusOK {
+			return fmt.Sprintf("GET /tools/registered status=%d (want 200)", code), false
+		}
+		var parsed struct {
+			Tools []map[string]interface{} `json:"tools"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return "parse /tools/registered: " + err.Error(), false
+		}
+		// Denied tool must be absent; fixture includes 5 tools, 1 denied.
+		for _, t := range parsed.Tools {
+			if n, _ := t["name"].(string); n == "fs_write_dangerous" {
+				return "tools[] still contains fs_write_dangerous; §11.2 AGENTS.md deny-list not subtracted. Impl has not shipped §11.2.1 AGENTS.md loader.", false
+			}
+		}
+		if len(parsed.Tools) != 4 {
+			return fmt.Sprintf("expected 4 tools (5 fixture − 1 denied); got %d. Deny-list subtraction may not have run against the fixture.", len(parsed.Tools)), false
+		}
+		return fmt.Sprintf("SV-REG-04: /tools/registered.tools[]=%d entries after AGENTS.md deny-list subtraction (5 fixture − 1 denied=fs_write_dangerous) per §11.2.1", len(parsed.Tools)), true
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-REG-04: " + msg})
+	}
+	return out
 }
 
 // SV-REG-05: list_tools field shape — every tool carries name, risk_class,

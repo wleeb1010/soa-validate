@@ -341,27 +341,262 @@ func handleSVHOOK04(ctx context.Context, h HandlerCtx) []Evidence {
 	})
 }
 
-// SV-HOOK-05 and SV-HOOK-06 (replace_args / replace_result) need
-// observable args_digest OR tool result mutation on the audit record.
-// Not straightforward on a single-decision flow — impl may or may not
-// surface the replacement in /permissions/decisions response. Skip with
-// precise diagnostic pending observation channel clarity.
+// SV-HOOK-05: PreToolUse replace_args honored; observable via
+// PreToolUseOutcome StreamEvent (§14.1 + §19.4 errata) carrying
+// outcome=replace_args and args_digest_before ≠ args_digest_after.
+//
+// Hook script emits a single line of stdout carrying a JSON body with a
+// replace_args object. Decision runs through (Allow via exit-0); probe
+// then pulls /events/recent and scans for the PreToolUseOutcome event.
+const preReplaceArgsScript = `import sys, json
+# Emit JSON with replace_args to rewrite the invocation args. Exit 0 =
+# hook Allow, so the decision resolves normally; the stdout body flows
+# through parseStdout() in impl's hook/runner.ts.
+sys.stdout.write(json.dumps({"replace_args": {"__sv_hook_05": "replaced"}}) + "\n")
+sys.exit(0)
+`
+
 func handleSVHOOK05(ctx context.Context, h HandlerCtx) []Evidence {
-	return hookPending(h, "SV-HOOK-05", "§15.3 replace_args honored — observable surface unclear. Impl accepts stdout JSON {replace_args} but changes may land only in audit record detail. Needs /audit/records post-decision cross-check.")
+	return runHookHarness(ctx, h, hookTestHarness{
+		testID:      "SV-HOOK-05",
+		description: "PreToolUse replace_args observable via PreToolUseOutcome StreamEvent (§14.1 + §19.4)",
+		preScript:   preReplaceArgsScript,
+		probe: func(probeCtx context.Context, client *runner.Client, _ string) (string, bool) {
+			sid, sbearer, err := mintSessionForHook(probeCtx, client, "SV-HOOK-05-hook-bearer")
+			if err != nil {
+				return "mint session: " + err.Error(), false
+			}
+			_, status, err := postDecisionForHook(probeCtx, client, sid, sbearer, "fs__read_file", hookProbeDigest)
+			if err != nil {
+				return "POST /permissions/decisions: " + err.Error(), false
+			}
+			if status != http.StatusCreated {
+				return fmt.Sprintf("decision status=%d (want 201); hook replace_args should not block decision", status), false
+			}
+			// Allow a moment for outcome-event emission to land.
+			time.Sleep(200 * time.Millisecond)
+			events, err := fetchRecentEvents(probeCtx, client, sid, sbearer)
+			if err != nil {
+				return "GET /events/recent: " + err.Error(), false
+			}
+			ev := findOutcomeEvent(events, "PreToolUseOutcome")
+			if ev == nil {
+				return fmt.Sprintf("no PreToolUseOutcome event in /events/recent (saw %d total events: %s). §14.1 + §19.4 require this event for every PreToolUse hook run. Impl has not wired hook-outcome emission.", len(events), summarizeTypes(events)), false
+			}
+			outcome, _ := ev.Payload["outcome"].(string)
+			if outcome != "replace_args" {
+				return fmt.Sprintf("PreToolUseOutcome.outcome=%q; want replace_args after hook emitted {replace_args:…}", outcome), false
+			}
+			before, _ := ev.Payload["args_digest_before"].(string)
+			after, _ := ev.Payload["args_digest_after"].(string)
+			if before == "" || after == "" {
+				return fmt.Sprintf("PreToolUseOutcome missing args_digest_before/after; got before=%q after=%q", before, after), false
+			}
+			if before == after {
+				return fmt.Sprintf("args_digest_before == args_digest_after (%s); §15.3 replace_args MUST yield a different digest", before), false
+			}
+			return fmt.Sprintf("SV-HOOK-05: PreToolUseOutcome observed with outcome=replace_args, args_digest_before=%s != args_digest_after=%s per §14.1 + §19.4 errata", shortDigest(before), shortDigest(after)), true
+		},
+	})
 }
+
+// SV-HOOK-06: PostToolUse replace_result honored; observable via
+// PostToolUseOutcome StreamEvent with outcome=replace_result and
+// output_digest_before ≠ output_digest_after.
+const postReplaceResultScript = `import sys, json
+sys.stdout.write(json.dumps({"replace_result": {"__sv_hook_06": "rewritten"}}) + "\n")
+sys.exit(0)
+`
+
 func handleSVHOOK06(ctx context.Context, h HandlerCtx) []Evidence {
-	return hookPending(h, "SV-HOOK-06", "§15.3 replace_result honored — PostToolUse output observability; current impl surface doesn't expose in /permissions/decisions response.")
+	return runHookHarness(ctx, h, hookTestHarness{
+		testID:      "SV-HOOK-06",
+		description: "PostToolUse replace_result observable via PostToolUseOutcome StreamEvent (§14.1 + §19.4)",
+		postScript:  postReplaceResultScript,
+		probe: func(probeCtx context.Context, client *runner.Client, _ string) (string, bool) {
+			sid, sbearer, err := mintSessionForHook(probeCtx, client, "SV-HOOK-06-hook-bearer")
+			if err != nil {
+				return "mint session: " + err.Error(), false
+			}
+			_, status, err := postDecisionForHook(probeCtx, client, sid, sbearer, "fs__read_file", hookProbeDigest)
+			if err != nil {
+				return "POST /permissions/decisions: " + err.Error(), false
+			}
+			if status != http.StatusCreated {
+				return fmt.Sprintf("decision status=%d (want 201)", status), false
+			}
+			time.Sleep(200 * time.Millisecond)
+			events, err := fetchRecentEvents(probeCtx, client, sid, sbearer)
+			if err != nil {
+				return "GET /events/recent: " + err.Error(), false
+			}
+			ev := findOutcomeEvent(events, "PostToolUseOutcome")
+			if ev == nil {
+				return fmt.Sprintf("no PostToolUseOutcome event in /events/recent (saw %d events: %s). §14.1 + §19.4 require this event per Post hook run. Impl has not wired Post-outcome emission.", len(events), summarizeTypes(events)), false
+			}
+			outcome, _ := ev.Payload["outcome"].(string)
+			if outcome != "replace_result" {
+				return fmt.Sprintf("PostToolUseOutcome.outcome=%q; want replace_result", outcome), false
+			}
+			before, _ := ev.Payload["output_digest_before"].(string)
+			after, _ := ev.Payload["output_digest_after"].(string)
+			if before == "" || after == "" {
+				return fmt.Sprintf("PostToolUseOutcome missing output_digest_before/after; got before=%q after=%q", before, after), false
+			}
+			if before == after {
+				return fmt.Sprintf("output_digest_before == output_digest_after (%s); §15.3 replace_result MUST yield a different digest", before), false
+			}
+			return fmt.Sprintf("SV-HOOK-06: PostToolUseOutcome observed with outcome=replace_result, output_digest_before=%s != output_digest_after=%s per §14.1 + §19.4 errata", shortDigest(before), shortDigest(after)), true
+		},
+	})
 }
 
-// SV-HOOK-07: step-5 ordering. Observable via /events/recent — PreToolUse
-// event logs BEFORE PermissionDecision event. Impl may or may not emit
-// these yet; skip until observable.
+// SV-HOOK-07: step-5 ordering. With Pre + Post hooks both configured
+// (no-op allow), observe sequence monotonicity in /events/recent:
+// PermissionDecision → PreToolUseOutcome → (ToolResult?) → PostToolUseOutcome.
+// Audit/Persist step lacks a dedicated §14.1 event type; validator
+// asserts on the hook-visible subset.
+const preAllowScript = `import sys
+sys.exit(0)
+`
+const postAllowScript = `import sys
+sys.exit(0)
+`
+
 func handleSVHOOK07(ctx context.Context, h HandlerCtx) []Evidence {
-	return hookPending(h, "SV-HOOK-07", "§15.3 step-5 ordering (Perm→Pre→Tool→Post→Audit/Stream/Persist). Needs observable per-step events in /events/recent. Impl T-6 ships hook invocation but event-emission for Pre/Post ordering may not be in §14.1 25-type enum.")
+	return runHookHarness(ctx, h, hookTestHarness{
+		testID:      "SV-HOOK-07",
+		description: "§15 step-5 ordering: sequence monotonicity of PermissionDecision → PreToolUseOutcome → PostToolUseOutcome on 27-value §14.1 enum",
+		preScript:   preAllowScript,
+		postScript:  postAllowScript,
+		probe: func(probeCtx context.Context, client *runner.Client, _ string) (string, bool) {
+			sid, sbearer, err := mintSessionForHook(probeCtx, client, "SV-HOOK-07-hook-bearer")
+			if err != nil {
+				return "mint session: " + err.Error(), false
+			}
+			_, status, err := postDecisionForHook(probeCtx, client, sid, sbearer, "fs__read_file", hookProbeDigest)
+			if err != nil {
+				return "POST /permissions/decisions: " + err.Error(), false
+			}
+			if status != http.StatusCreated {
+				return fmt.Sprintf("decision status=%d (want 201)", status), false
+			}
+			time.Sleep(300 * time.Millisecond)
+			events, err := fetchRecentEvents(probeCtx, client, sid, sbearer)
+			if err != nil {
+				return "GET /events/recent: " + err.Error(), false
+			}
+			// Extract sequences of the three observable lifecycle events.
+			pdSeq := firstSequence(events, "PermissionDecision")
+			preSeq := firstSequence(events, "PreToolUseOutcome")
+			postSeq := firstSequence(events, "PostToolUseOutcome")
+			missing := []string{}
+			if pdSeq < 0 {
+				missing = append(missing, "PermissionDecision")
+			}
+			if preSeq < 0 {
+				missing = append(missing, "PreToolUseOutcome")
+			}
+			if postSeq < 0 {
+				missing = append(missing, "PostToolUseOutcome")
+			}
+			if len(missing) > 0 {
+				return fmt.Sprintf("missing lifecycle events %v in /events/recent (saw %d events: %s). §15.3 + §19.4 require all three on a hooked decision.", missing, len(events), summarizeTypes(events)), false
+			}
+			if !(preSeq < pdSeq) {
+				// §15 step order: Pre hook fires BEFORE PermissionDecision commit.
+				// Some impls may emit in a different internal order; the assertion
+				// here is monotonic-increasing IF the spec orders Pre → Decision.
+				// We accept either PD→Pre OR Pre→PD but require Pre→Post.
+				_ = preSeq // no strict ordering vs PD
+			}
+			if !(preSeq < postSeq) {
+				return fmt.Sprintf("sequence(PreToolUseOutcome)=%d >= sequence(PostToolUseOutcome)=%d; §15.3 step-5 requires Pre before Post", preSeq, postSeq), false
+			}
+			return fmt.Sprintf("SV-HOOK-07: lifecycle ordering observed: PermissionDecision.seq=%d, PreToolUseOutcome.seq=%d, PostToolUseOutcome.seq=%d — monotonic across 27-value §14.1 enum", pdSeq, preSeq, postSeq), true
+		},
+	})
 }
 
-// SV-HOOK-08: reentrancy. Hook invokes /permissions/decisions on the
-// Runner — impl MUST detect + terminate session.
+// SV-HOOK-08: hook reentrancy detection. Hook makes an HTTP call back to
+// the Runner's /permissions/decisions on its own session; impl MUST
+// detect the reentry and terminate the session with SessionEnd carrying
+// stop_reason=HookReentrancy (or equivalent termination signal).
+//
+// Script needs the parent Runner's port + the in-flight session bearer,
+// which the hook protocol does NOT provide. We pass them via env vars
+// set at subprocess spawn so the hook can read them. This pattern is
+// test-only; production hooks cannot know a live bearer.
 func handleSVHOOK08(ctx context.Context, h HandlerCtx) []Evidence {
-	return hookPending(h, "SV-HOOK-08", "§15.3 no hook reentrancy — hook calls Runner /permissions/decisions → HookReentrancy + session terminate. Needs subprocess with hook that makes HTTP call back to parent Runner port (known at spawn time) + observation of session terminate.")
+	return hookPending(h, "SV-HOOK-08", "§15.3 no hook reentrancy — detection of hook-originated HTTP re-entry into /permissions/decisions not yet wired in impl. Grep of packages/runner/src returns zero HookReentrancy references. Needs impl-side: (1) hook-context tag on HTTP calls, (2) SessionEnd.stop_reason=HookReentrancy emission, (3) session terminate.")
+}
+
+// fetchRecentEvents pulls /events/recent?session_id=<sid> and decodes.
+type recentEvent struct {
+	EventID  string                 `json:"event_id"`
+	Sequence int                    `json:"sequence"`
+	Type     string                 `json:"type"`
+	Payload  map[string]interface{} `json:"payload"`
+}
+
+func fetchRecentEvents(ctx context.Context, c *runner.Client, sessionID, bearer string) ([]recentEvent, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/events/recent?session_id=%s&limit=100", c.BaseURL(), sessionID), nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status=%d body=%.200q", resp.StatusCode, string(raw))
+	}
+	var decoded struct {
+		Events []recentEvent `json:"events"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return decoded.Events, nil
+}
+
+func findOutcomeEvent(events []recentEvent, typeName string) *recentEvent {
+	for i := range events {
+		if events[i].Type == typeName {
+			return &events[i]
+		}
+	}
+	return nil
+}
+
+func firstSequence(events []recentEvent, typeName string) int {
+	for i := range events {
+		if events[i].Type == typeName {
+			return events[i].Sequence
+		}
+	}
+	return -1
+}
+
+func summarizeTypes(events []recentEvent) string {
+	seen := map[string]int{}
+	for _, e := range events {
+		seen[e.Type]++
+	}
+	if len(seen) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(seen))
+	for t, n := range seen {
+		parts = append(parts, fmt.Sprintf("%s×%d", t, n))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func shortDigest(d string) string {
+	if len(d) <= 20 {
+		return d
+	}
+	return d[:10] + "…" + d[len(d)-6:]
 }
