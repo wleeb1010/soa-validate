@@ -9,16 +9,20 @@ package testrunner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
+
+func jsonUnmarshal(body []byte, v interface{}) error { return json.Unmarshal(body, v) }
 
 // ─── V-6 SV-BUD + SV-BUD-PROJ (9 tests) ──────────────────────────────
 
@@ -144,20 +148,126 @@ func budgetPending(h HandlerCtx, testID, diagnostic string) []Evidence {
 
 // ─── V-7 SV-REG + SV-REG-OBS (7 tests) ───────────────────────────────
 
+// SV-REG-01: /tools/registered returns metadata-only — no handler state,
+// no session-binding, no runtime-only fields. Schema's closed property set
+// already enforces this structurally; we additionally assert each tool entry
+// contains ONLY spec-listed fields.
 func handleSVREG01(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-01", "§11 list_tools metadata-only (no handler state). Needs impl T-5.")
+	return registryMetadataProbe(ctx, h, "SV-REG-01", func(tools []map[string]interface{}) string {
+		allowed := map[string]bool{"name": true, "risk_class": true, "default_control": true,
+			"idempotency_retention_seconds": true, "registered_at": true, "registration_source": true}
+		for i, t := range tools {
+			for k := range t {
+				if !allowed[k] {
+					return fmt.Sprintf("tool[%d]=%q carries unexpected field %q (§11 list_tools MUST be metadata-only)", i, t["name"], k)
+				}
+			}
+		}
+		return ""
+	}, "§11 /tools/registered metadata-only: every tool entry carries only spec-listed fields")
 }
+
+// SV-REG-02: MCP name pattern enforcement. Per §11.1 tool names follow
+// the `mcp__<category>__<tool>` shape OR the bare-string static-fixture
+// convention. We accept either: static-fixture tools have category-prefixed
+// names (fs__, net__, proc__, mem__); mcp-dynamic tools would use mcp__.
 func handleSVREG02(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-02", "§11 MCP name pattern enforcement. Needs T-5.")
+	nameRe := regexp.MustCompile(`^(?:mcp__[a-z0-9_]+__[a-z0-9_]+|[a-z][a-z0-9_]*__[a-z][a-z0-9_]*)$`)
+	return registryMetadataProbe(ctx, h, "SV-REG-02", func(tools []map[string]interface{}) string {
+		for i, t := range tools {
+			name, _ := t["name"].(string)
+			if !nameRe.MatchString(name) {
+				return fmt.Sprintf("tool[%d] name %q violates §11 MCP-name pattern (mcp__category__tool or category__tool)", i, name)
+			}
+		}
+		return ""
+	}, "§11 MCP name pattern: all registered tools follow category__tool or mcp__category__tool shape")
 }
+
 func handleSVREG03(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-03", "§11.3.1 tool pool pinned per session; SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION hook per L-34. Needs T-5.")
+	return registryPending(h, "SV-REG-03", "§11.3.1 tool pool pinned per session; SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION hook per L-34. Needs validator-side trigger-file helper.")
 }
 func handleSVREG04(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-04", "§11 deny-list from AGENTS.md. Needs T-5.")
+	return registryPending(h, "SV-REG-04", "§11 deny-list from AGENTS.md. Needs AGENTS.md deny-list fixture.")
 }
+
+// SV-REG-05: list_tools field shape — every tool carries name, risk_class,
+// default_control, registered_at, registration_source per schema required[].
 func handleSVREG05(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-05", "§11 list_tools field shape (name, description, risk_class, retention). Needs T-5.")
+	required := []string{"name", "risk_class", "default_control", "registered_at", "registration_source"}
+	return registryMetadataProbe(ctx, h, "SV-REG-05", func(tools []map[string]interface{}) string {
+		if len(tools) == 0 {
+			return "tools array empty — cannot assert field shape"
+		}
+		for i, t := range tools {
+			for _, f := range required {
+				if _, ok := t[f]; !ok {
+					return fmt.Sprintf("tool[%d]=%q missing required field %q", i, t["name"], f)
+				}
+			}
+		}
+		return ""
+	}, "§11 list_tools field shape: every tool carries {name, risk_class, default_control, registered_at, registration_source}")
+}
+
+// registryMetadataProbe fetches /tools/registered, schema-validates, then
+// runs the per-test structural checker against the decoded tools array.
+// Returns PASS when checker returns empty string, FAIL otherwise.
+func registryMetadataProbe(ctx context.Context, h HandlerCtx, testID string,
+	checker func([]map[string]interface{}) string, passMsg string) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §11 /tools/registered metadata assertion"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
+		return out
+	}
+	_, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
+		return out
+	}
+	body, code, err := getToolsRegisteredRaw(ctx, h.Client, bearer)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if code == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("%s: GET /tools/registered → 404; impl has not shipped §11.4 yet", testID)})
+		return out
+	}
+	if code != http.StatusOK {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: status=%d; want 200", testID, code)})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path(specvec.ToolsRegisteredResponseSchema), body); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: §11.4 response fails schema: %v", testID, err)})
+		return out
+	}
+	var parsed struct {
+		Tools []map[string]interface{} `json:"tools"`
+	}
+	if err := jsonUnmarshal(body, &parsed); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("%s: parse tools array: %v", testID, err)})
+		return out
+	}
+	if violation := checker(parsed.Tools); violation != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: %s", testID, violation)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("%s: %s (observed %d tools)", testID, passMsg, len(parsed.Tools))})
+	return out
 }
 
 // SV-REG-OBS-01: schema validity on GET /tools/registered. Impl T-3 shipped
