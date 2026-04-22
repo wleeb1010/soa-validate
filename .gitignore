@@ -41,3 +41,8 @@ go.work.sum
 
 # Ephemeral session files written by impl subprocesses during test runs
 sessions/
+
+# graphify
+graphify-out/cache/
+graphify-out/.needs-semantic-update
+

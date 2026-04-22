@@ -27,6 +27,15 @@ Example queries during implementation:
 ### `CodeGraphContext` (per-project)
 Once this Go code is indexed: function-call chains, unused exports, complexity analysis across the Go codebase.
 
+### `graphify-validate` (per-repo, user-level)
+Indexes this repo's **docs + citation web** — CLAUDE.md, STATUS.md, plans, and `soa-validate.lock` pin history. Tracks which Findings, test IDs, L-entries, spec §refs, and cross-repo files are cited where. Refreshed on every commit via post-commit hook → `graphify-out/graph.json`.
+
+**Routing rule** (prefer MCP over grep for "what references X?" questions):
+- Docs + citations in THIS repo (which test IDs are cited where, which plans reference spec §N, which Findings map to which tests) → **`graphify-validate`**
+- Go code structure (functions, packages, callers, imports) → **`CodeGraphContext`**
+- Spec-side sections, must-map coverage, threat-model cross-refs → **`graphify-spec`**
+- Impl-side code paths + TS architecture → **`graphify-impl`** (if/when available)
+
 ## Code-generation guardrails
 
 1. **Never generate expected values.** Expected values come from the pinned test vectors in the spec repo (`../soa-harness=specification/test-vectors/`). If you find yourself computing an expected digest, hash, or signature — stop. It belongs in the spec repo, not here. The validator's job is to *check*, not to *define*.
