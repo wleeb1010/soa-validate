@@ -812,6 +812,48 @@ Impl restarted `:7700` against HEAD (includes `8b5d650` T-3 scaffolds). First M3
 
 ---
 
+## 2026-04-22 (M3 Week 1 close — T-1 + T-2 live; 7 M3 live-greens)
+
+Impl shipped T-2 (StreamEvent emitter + `/events/recent`) and T-1 (`/memory/state/<sid>`) with corresponding `:7700` restarts. Two validator-side path corrections landed:
+
+- **SV-STR-OBS-01** handler: needed `session_id` query param on `/events/recent` (impl banner line: `GET /events/recent?session_id=<id>&after=<eid>&limit=<n>`).
+- **SV-MEM-STATE-01/02** handler: endpoint is `/memory/state/<sid>` (path param), same shape as `/budget/projection/<sid>` — my handler originally hit the base path.
+
+### Scoreboard (pin `5e97277`, 80 test IDs) — **38 pass / 0 fail / 42 skip / 0 error**
+
+**+3 M3 greens since last poll:**
+- **SV-STR-OBS-01** — §14.5 `/events/recent?session_id=<id>` 200 + schema-valid.
+- **SV-MEM-STATE-01** — §8.3.2 `/memory/state/<sid>` 200 + schema-valid.
+- **SV-MEM-STATE-02** — §8.3.2 byte-identity excl `generated_at`.
+
+**M3 live-green: 7** (was 5). Total validator-side M3 live: SV-BUD-PROJ-01/02, SV-REG-OBS-01/02, SV-STR-OBS-01, SV-MEM-STATE-01/02.
+
+Wall-clock for the full 80-test suite against live `:7700`: **22s**.
+
+### Updated machine-readable block
+
+```
+<!-- machine-readable -->
+{
+  "week": 1,
+  "v_tasks_landed": ["V-1","V-2","V-3","V-4","V-5","V-6","V-7","V-8"],
+  "scoreboard": {"pass": 38, "skip": 42, "fail": 0, "error": 0},
+  "pre_budgeted_skip_count": 2,
+  "real_slip_count": 0,
+  "spec_pin": "5e97277",
+  "m3_handlers_wired": 48,
+  "m3_live_green": 7,
+  "m3_target_live_greens": 120,
+  "m3_skip_budget": 19,
+  "awaiting": "impl Week 2: T-4 Budget (→ SV-BUD-01..07), T-5 Dynamic MCP (→ SV-REG-01..05), T-6 Hooks (→ SV-HOOK-01..08). Rule-level SV-MEM-01..07 + SV-STR-01..11/15/16 also pending."
+}
+<!-- /machine-readable -->
+```
+
+**Impl Week 1 complete on their side (T-0/T-1/T-2/T-3 all shipped).** Validator ready for Week 2 incoming tasks.
+
+---
+
 ## 2026-04-20 (M1 FINAL ARTIFACT — 15 pass / 1 skip / 0 fail; pin at 8624a7a)
 
 **This is the M1 exit-gate scoreboard.**

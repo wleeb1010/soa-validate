@@ -158,9 +158,10 @@ func memoryPending(h HandlerCtx, testID, diagnostic string) []Evidence {
 }
 
 func getMemoryStateRaw(ctx context.Context, c *runner.Client, sessionID, bearer string) ([]byte, int, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL()+"/memory/state", nil)
+	// §8.3.2 endpoint pattern matches /budget/projection: path param, not query.
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.BaseURL()+"/memory/state/"+sessionID, nil)
 	req.Header.Set("Authorization", "Bearer "+bearer)
-	_ = sessionID // reserved for per-session scoping when spec lands
 	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
 	if err != nil {
 		return nil, 0, err
