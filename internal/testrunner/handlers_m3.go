@@ -67,7 +67,7 @@ func handleSVMEMSTATE01(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	sid, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
@@ -110,7 +110,7 @@ func handleSVMEMSTATE02(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	sid, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
@@ -227,7 +227,7 @@ func handleSVSTROBS01(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	sid, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap for /events/recent probe failed: status=%d err=%v", status, err)})

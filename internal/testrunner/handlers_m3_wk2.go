@@ -98,7 +98,7 @@ func budgetProjectionProbe(ctx context.Context, h HandlerCtx, testID string, byt
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	sid, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
@@ -180,7 +180,7 @@ func budgetProjectionAssert(ctx context.Context, h HandlerCtx, testID string,
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	sid, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
@@ -309,7 +309,7 @@ func registryMetadataProbe(ctx context.Context, h HandlerCtx, testID string,
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	_, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	_, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
@@ -376,7 +376,7 @@ func toolsRegisteredProbe(ctx context.Context, h HandlerCtx, testID string, byte
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	_, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	_, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})

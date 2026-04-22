@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
@@ -721,6 +722,11 @@ func m2BaseEnv(specRoot string, port int, bearer string) map[string]string {
 // m2Bootstrap mints a session via POST /sessions with request_decide_scope=true
 // and DangerFullAccess so subsequent /permissions/resolve + /permissions/decisions
 // calls have the scope they need. Returns (session_id, session_bearer, status, err).
+//
+// Per-bearer 30 rpm limit (impl BootstrapLimiter in sessions-route.ts:113).
+// At M3 scale this gets hit when ~40+ tests all mint their own session
+// against the same SOA_RUNNER_BOOTSTRAP_BEARER. Observability-read probes
+// should use sharedBootstrap instead — one cached session serves many tests.
 func m2Bootstrap(ctx context.Context, c *runner.Client, bootstrapBearer string) (string, string, int, error) {
 	body := `{"requested_activeMode":"DangerFullAccess","user_sub":"m2-validator","request_decide_scope":true}`
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL()+"/sessions", strings.NewReader(body))
@@ -743,6 +749,34 @@ func m2Bootstrap(ctx context.Context, c *runner.Client, bootstrapBearer string) 
 		return "", "", resp.StatusCode, err
 	}
 	return parsed.SessionID, parsed.SessionBearer, resp.StatusCode, nil
+}
+
+// sharedSession holds a single cached (sid, bearer) pair reused across
+// observability-read probes. Tests that mutate session state (crash
+// recovery, session-file isolation, drive-and-observe) MUST call
+// m2Bootstrap directly for a fresh session.
+var sharedSessionMu sync.Mutex
+var sharedSessionSID, sharedSessionBearer string
+var sharedSessionExpires time.Time
+
+// sharedBootstrap returns a cached DFA+decide-scope session minted
+// once per validator run. Cache holds for 55min (session TTL minus
+// safety margin). Eliminates POST /sessions 30 rpm per-bearer churn
+// for read-only observability probes.
+func sharedBootstrap(ctx context.Context, c *runner.Client, bootstrapBearer string) (string, string, int, error) {
+	sharedSessionMu.Lock()
+	defer sharedSessionMu.Unlock()
+	if sharedSessionSID != "" && time.Now().Before(sharedSessionExpires) {
+		return sharedSessionSID, sharedSessionBearer, http.StatusCreated, nil
+	}
+	sid, bearer, status, err := m2Bootstrap(ctx, c, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		return sid, bearer, status, err
+	}
+	sharedSessionSID = sid
+	sharedSessionBearer = bearer
+	sharedSessionExpires = time.Now().Add(55 * time.Minute)
+	return sid, bearer, status, nil
 }
 
 // launchProbeKill spawns impl, waits for /health, runs the probe, then
