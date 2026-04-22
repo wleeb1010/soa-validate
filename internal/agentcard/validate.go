@@ -39,13 +39,15 @@ func ValidateJSON(schemaPath string, cardBytes []byte) error {
 	return nil
 }
 
-// JWSHeader captures the protected header fields SV-SIGN-01 must inspect.
+// JWSHeader captures the protected header fields SV-SIGN-* probes inspect.
 type JWSHeader struct {
-	Alg string `json:"alg"`
-	Kid string `json:"kid"`
-	Typ string `json:"typ"`
-	B64 *bool  `json:"b64,omitempty"`
-	Crit []string `json:"crit,omitempty"`
+	Alg     string   `json:"alg"`
+	Kid     string   `json:"kid"`
+	Typ     string   `json:"typ"`
+	B64     *bool    `json:"b64,omitempty"`
+	Crit    []string `json:"crit,omitempty"`
+	X5C     []string `json:"x5c,omitempty"`     // RFC 7515 §4.1.6 cert chain (leaf-first)
+	X5TS256 string   `json:"x5t#S256,omitempty"` // RFC 7515 §4.1.8 leaf cert SHA-256 thumbprint
 }
 
 // ParseJWS returns the decoded protected header plus the detached-payload

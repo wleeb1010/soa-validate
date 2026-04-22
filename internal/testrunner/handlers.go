@@ -147,6 +147,22 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
 
+	// M3 Week 4 (V-9a) — SV-CARD-02..11 + SV-SIGN-02..05 (vector-heavy).
+	"SV-CARD-02": handleSVCARD02,
+	"SV-CARD-03": handleSVCARD03,
+	"SV-CARD-04": handleSVCARD04,
+	"SV-CARD-05": handleSVCARD05,
+	"SV-CARD-06": handleSVCARD06,
+	"SV-CARD-07": handleSVCARD07,
+	"SV-CARD-08": handleSVCARD08,
+	"SV-CARD-09": handleSVCARD09,
+	"SV-CARD-10": handleSVCARD10,
+	"SV-CARD-11": handleSVCARD11,
+	"SV-SIGN-02": handleSVSIGN02,
+	"SV-SIGN-03": handleSVSIGN03,
+	"SV-SIGN-04": handleSVSIGN04,
+	"SV-SIGN-05": handleSVSIGN05,
+
 	// M3 Week 4 (T-12) — SV-GOV (§6/§18/§19) + SV-PRIV (§10.7).
 	// Impl shipped 9141fd1 (T-12a) + 87bbe2b (T-12b) Wed 2026-04-22.
 	"SV-GOV-01":  handleSVGOV01,
