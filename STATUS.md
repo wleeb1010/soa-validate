@@ -4,6 +4,47 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 (Findings AA/AB/AC/AD land — +4 flips → 73 pass / 0 fail)
+
+**Scoreboard: 73 pass / 0 fail / 7 skip / 0 error (+4 from 69).**
+
+Impl shipped Findings AA (sharing_policy rename) + AB (billing_tag in audit + stream) + AC (consolidation env hooks) + AD (synthetic cache-hit env hook) as `b829de8`. Validator-side outcomes:
+
+| Test | Status | Mechanism |
+|---|---|---|
+| **SV-MEM-06** | skip → **pass** (auto) | AA renamed `default_sharing_scope` → `sharing_policy`; existing probe asserts `sharing_scope="project"` flows through to memmock |
+| **SV-BUD-04** | skip → **pass** | new probe spawns subprocess with `RUNNER_SYNTHETIC_CACHE_HIT=100`, drives one decision, asserts `/budget/projection.cache_accounting.{prompt,completion}_tokens_cached=100` (Finding AD) |
+| **SV-MEM-05** | skip → **pass** | new probe spawns subprocess with `RUNNER_CONSOLIDATION_TICK_MS=100` + `_ELAPSED_MS=500` + memmock; mints session, waits 1.5s, asserts `consolidate_memories` invocation in mock CallLog (Finding AC) |
+| **SV-BUD-05** | skip → **pass** | new probe drives one decision, asserts billing_tag on all three surfaces — OTel resource_attributes (Finding Q), `/audit/records[]` paginated until matching session row (Finding AB), PermissionDecision StreamEvent payload (Finding AB) |
+
+Audit-records pagination: chain is genesis-first and grows ~50–100 rows per session over time; probe walks pages until a row matching the freshly-minted `session_id` lands (≤20 pages × 100 rows = generous bound).
+
+### Remaining 7 skips
+
+All impl-dependent or pre-budgeted (no validator work blocking):
+
+| Test | Blocks on |
+|---|---|
+| SV-MEM-08 | pre-budgeted (cross-tenant needs real Memory MCP beyond mock scope) |
+| SV-BUD-03 | M4 retag (mid-stream cancel needs LLM streaming) |
+| SV-STR-04 | pre-budgeted (M4 SSE terminal-event ordering) |
+| SV-STR-10 | Finding AE (CrashEvent emission + bearer/admin surface for post-relaunch read) |
+| SV-STR-11 | M4 retag (CompactionDeferred needs LLM dispatcher) |
+| SV-STR-16 | M4 retag (Gateway trust_class) |
+| SV-SESS-06 | platform-gated POSIX (Windows twin SV-SESS-07 passes) |
+
+### Trajectory
+
+- **Today**: 73 pass on this validator host
+- **+ AE (CrashEvent)**: 73 → 74
+- **+ T-12 governance block (SV-GOV + SV-PRIV = 15 tests)**: 74 → 89
+- **M4 retags + pre-budgeted**: 6 stay skip out of M3 scope on this host
+- **POSIX SV-SESS-06**: flips on a Linux/macOS validator
+
+M3 exit ceiling on this Windows host: **~89**. Cross-platform aggregation (POSIX SV-SESS-06) brings the per-platform number to 90; the ≥120 spec-side target relies on the spec-counted 3-platform multiplier.
+
+---
+
 ## 2026-04-21 (Findings Q/R/U land — SV-BUD-07 flips; Q partial / U needs env hook)
 
 **Scoreboard: 69 pass / 1 fail / 10 skip / 0 error (+1 from 68).**
