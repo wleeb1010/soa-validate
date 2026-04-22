@@ -147,6 +147,13 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
 
+	// M3 Week 4 (V-12) — HR-07/09/10/11 harness regressions. HR-01 wired above;
+	// HR-02/03/14/17 are other tracks; HR-06/08/13/15/16/18 are M4/M5.
+	"HR-07": handleHR07,
+	"HR-09": handleHR09,
+	"HR-10": handleHR10,
+	"HR-11": handleHR11,
+
 	// M3 Week 4 (V-11) — §7 AGENTS.md grammar + imports (SV-AGENTS-06 is M5).
 	"SV-AGENTS-01": handleSVAGENTS01,
 	"SV-AGENTS-02": handleSVAGENTS02,

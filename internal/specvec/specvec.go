@@ -120,6 +120,16 @@ const (
 	JWTClockSkewIatFuture   = "test-vectors/jwt-clock-skew/iat-future.jwt"
 	JWTClockSkewExpExpired  = "test-vectors/jwt-clock-skew/exp-expired.jwt"
 
+	// AGENTS.md grammar fixture set (AT + AU) — seven scenarios exercising
+	// §7.2/§7.3/§7.4/§7.2#4 failure paths.
+	AgentsMDGrammarMissingH2           = "test-vectors/agents-md-grammar/missing-h2/AGENTS.md"
+	AgentsMDGrammarDuplicateH2         = "test-vectors/agents-md-grammar/duplicate-h2/AGENTS.md"
+	AgentsMDGrammarOutOfOrderH2        = "test-vectors/agents-md-grammar/out-of-order-h2/AGENTS.md"
+	AgentsMDGrammarImportDepth9        = "test-vectors/agents-md-grammar/import-depth-9/AGENTS.md"
+	AgentsMDGrammarImportCycle         = "test-vectors/agents-md-grammar/import-cycle/AGENTS.md"
+	AgentsMDGrammarMidTurnReload       = "test-vectors/agents-md-grammar/mid-turn-reload/AGENTS.md"
+	AgentsMDGrammarEntrypointMismatch  = "test-vectors/agents-md-grammar/entrypoint-mismatch/AGENTS.md"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 

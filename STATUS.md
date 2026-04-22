@@ -4,6 +4,62 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (AP/AQ/AR/AT all landed + V-11 + V-9c real probes — 128 pass / 1 fail / 12 skip)
+
+**Scoreboard: 128 pass / 1 fail / 12 skip / 0 error (+8 from 120).**
+
+Impl landed 4 findings in quick succession: AT (full §7.2/§7.3 AGENTS.md parser at `a5b9317`), AP/AQ/AR (§5.3.3 bootstrap env hooks at `c1db941`). Validator flipped V-11 + V-9c real probes against the live surface.
+
+### Flipped (V-11 SV-AGENTS — 6 of 7)
+
+| Test | Path | Finding |
+|---|---|---|
+| SV-AGENTS-01 | live | Subprocess with `missing-h2/AGENTS.md` → `/ready=503 + {Config/error/AgentsMdInvalid, data.reason=missing-h2}` |
+| SV-AGENTS-02 | live | `out-of-order-h2/AGENTS.md` → `AgentsMdInvalid(out-of-order-h2)` |
+| SV-AGENTS-03 | live | `duplicate-h2/AGENTS.md` → `AgentsMdInvalid(duplicate-h2)` |
+| SV-AGENTS-04 | live | `import-depth-9/AGENTS.md` → `AgentsMdImportDepthExceeded` |
+| SV-AGENTS-05 | live | `import-cycle/AGENTS.md` → `AgentsMdImportCycle` |
+| SV-AGENTS-07 | live | `mid-turn-reload/AGENTS.md` boots clean at /ready=200; AT ship comment confirms §7.4 satisfied by construction at M3 (impl never reloads mid-turn) |
+
+### Flipped (V-9c SV-BOOT — 3)
+
+| Test | Path | Finding |
+|---|---|---|
+| SV-BOOT-03 | live | AP `SOA_BOOTSTRAP_DNSSEC_TXT=<fixture>` — `empty.json` + `missing-ad-bit.json` both refuse start with `bootstrap-missing` marker |
+| SV-BOOT-04 | live | AQ `RUNNER_BOOTSTRAP_POLL_TICK_MS=200` + `SOA_BOOTSTRAP_REVOCATION_FILE=<tempfile>` — write revocation matching `publisher_kid=soa-test-release-v1.0` → `/ready=200 → 503` within ~2s + `{Config/error/bootstrap-revoked}` log record |
+| SV-BOOT-05 | live | AR `SOA_BOOTSTRAP_SECONDARY_CHANNEL=operator-bundled` + `SOA_BOOTSTRAP_SECONDARY_FILE=<dissenting.json>` — impl refuses start (bootstrap-split-brain marker in stderr) |
+
+### Routed / regressed (2)
+
+| Test | Finding | Ask |
+|---|---|---|
+| **SV-AGENTS-08** | **AZ (spec)** | `self_improvement.entrypoint_file` absent on pinned conformance card — AT skips the entrypoint-match gate when Card doesn't declare it, so `wrong-entrypoint.py` in the grammar fixture doesn't trigger mismatch. Add `self_improvement.entrypoint_file: "agent.py"` to `test-vectors/conformance-card/agent-card.json`. |
+| **SV-REG-04** | **AY (spec)** — regression | `test-vectors/agents-md-denylist/AGENTS.md` fails the new §7.2 H1/H2 grammar check (header is `# AGENTS.md — Denylist Fixture`, lacks required H1 `# AGENTS` literal match + 7 required H2s). Impl now pins `/ready=503` at boot, which turns SV-REG-04's POST /sessions into 503. Update the fixture so it passes §7.2 while keeping the `## Agent Type Constraints` → `### Deny` body. |
+
+### V-12 HRs (4 stubs held)
+
+| Test | Finding | Blocker |
+|---|---|---|
+| HR-07 | AV (impl) | Runtime agentType→tool denial at /permissions/decisions not shipped |
+| HR-09/10 | AX (impl) | SI edit pipeline not shipped (editable_surfaces enforcement + diff-validator) |
+| HR-11 | AW (impl) | precedence-guard axis 3 (activeMode × toolRequirements) missing |
+
+### Calibrations worth naming
+
+- **SV-BOOT-04 revocation payload field**: first probe used `{"revoked_publisher_kid":"soa-conformance-test-release-v1.0"}`. Impl's `RevocationPoller.onRevoked` reads `record.publisher_kid` and matches against `trust.publisher_kid` (from initial-trust/valid.json = `soa-test-release-v1.0`). Fixed both the field name and the kid value.
+- **SV-BOOT-04 log code**: first probe checked for `code=HostHardeningInsufficient`. Impl emits `code=bootstrap-revoked` directly (simpler shape). Loosened the check.
+
+### Trajectory refresh
+
+- **Today**: 128 pass / 1 fail / 12 skip
+- **+ AE (SV-STR-10, impl pending)**: → 129
+- **+ AY (denylist fixture bump, spec)**: → 130 (SV-REG-04 restores)
+- **+ AZ (conformance card entrypoint_file, spec)**: → 131 (SV-AGENTS-08)
+- **+ AV/AW/AX (HR impl surface)**: → ~134
+- **+ V-9b SV-PERM-02..22** (21, closer): → ~155
+
+---
+
 ## 2026-04-22 night (L-44 pin + SV-ENC-06 flip + V-11 routed — 120 pass / 0 fail / 17 skip) 🎯
 
 **Scoreboard: 120 pass / 0 fail / 17 skip / 0 error (+1 pass from 119). ≥120 M3 target crossed.**
