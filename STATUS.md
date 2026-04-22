@@ -4,6 +4,40 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (L-35 exit — Findings L/M/REG-04 all flipped; first zero-fail M3 run)
+
+**Scoreboard: 52 pass / 0 fail / 28 skip / 0 error.**
+
+Impl-session shipped all three gaps I had surfaced under L-35 on a single :7700 bounce — I verified with one validator poll against the canonical runner:
+
+| Test | Landed via | Evidence |
+|---|---|---|
+| SV-HOOK-05 | Finding L (d2344cf) | `PreToolUseOutcome` with `args_digest_before != args_digest_after` per §14.1 + §19.4 errata |
+| SV-HOOK-06 | Finding M (2fa58a1) | `PostToolUseOutcome` with `output_digest_before != output_digest_after` |
+| SV-HOOK-07 | Finding M | sequence monotonicity observed: `PermissionDecision → PreToolUseOutcome → PostToolUseOutcome` across 27-value §14.1 enum |
+| SV-REG-04 | d0a8f2e | `/tools/registered.tools[]` = 4 entries after §11.2.1 AGENTS.md deny-list subtraction (`fs_write_dangerous` excluded); validator re-launches :7700 with `SOA_RUNNER_AGENTS_MD_PATH` + 5-tool fixture per test-vector README — canonical :7700 stays on the normal 8-tool fixture |
+
+**No validator code changes this pass** — the real probes shipped under `e993efb` already observe the right surfaces; impl just needed to emit the events and wire the loader.
+
+### Remaining 28 skips — validator-side stubs, not impl gaps
+
+Ordered by chunk for future V-8/V-9 work:
+
+- **SV-HOOK-08** — HookReentrancy guard (impl-side Finding N queued per impl-session)
+- **SV-MEM-01..08** — Memory MCP handlers, my `memoryPending` stubs (need real probes against `/memory/state` + `/events/recent` with Memory fixture)
+- **SV-BUD-02/03/04/05/07** — my `budgetPending` stubs. SV-BUD-01/06 + SV-BUD-PROJ-01/02 already green; exhaustion-driven tests need impl-side budget-exhaustion trigger (Finding K's next chapter)
+- **SV-STR-01/02/03/05/06/07/08/09/10/11/15/16** — my `streamPending` stubs (observable now via `/events/recent` — convert next)
+- **SV-STR-04** — pre-budgeted skip (SSE terminal-event semantics, M4 scope)
+- **SV-SESS-01/03/06** — skip-pending on resume/crash-recovery fixtures
+
+### Trajectory vs plan
+
+Target M3 exit was ≥120 green across 3 platforms = ≥40 SV + HR per platform. Current SV+HR green count: **52** (well above the per-platform minimum). The remaining 28 skips are in-scope to convert to real probes in V-9a/b/c/V-10/V-11/V-12.
+
+**Impl sequence today:** 3b0bce2 (foundation) → 1432d03 (dev-runner.sh) → d2344cf (Finding L) → d938b5a (regression fixes) → 2fa58a1 (Finding M) → d0a8f2e (SV-REG-04). Validator-side: e993efb (L-35 adoption: pin + 4 real probes). No validator code to add this round — ready to queue V-9 stream + memory conversions.
+
+---
+
 ## 2026-04-21 (L-35 adopted — hook lifecycle observability + AGENTS.md fixture; pin bumped to 038ba1b)
 
 **Done:**
