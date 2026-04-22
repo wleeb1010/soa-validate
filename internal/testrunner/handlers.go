@@ -147,6 +147,13 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
 
+	// M3 Week 4 (V-9c) — SV-BOOT-02..06 (trust-init extensions).
+	"SV-BOOT-02": handleSVBOOT02,
+	"SV-BOOT-03": handleSVBOOT03,
+	"SV-BOOT-04": handleSVBOOT04,
+	"SV-BOOT-05": handleSVBOOT05,
+	"SV-BOOT-06": handleSVBOOT06,
+
 	// M3 Week 4 (V-9a) — SV-CARD-02..11 + SV-SIGN-02..05 (vector-heavy).
 	"SV-CARD-02": handleSVCARD02,
 	"SV-CARD-03": handleSVCARD03,

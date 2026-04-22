@@ -4,6 +4,42 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (V-9c SV-BOOT bulk — +2 flips → 101-102 pass / 1 fail / 11 skip)
+
+**Scoreboard (stable run): 102 pass / 1 fail / 11 skip / 0 error (+2 from 100).** One transient subprocess port flake observed on SV-SESS-BOOT-02 in one run — not persistent.
+
+V-9c adds 5 handlers (SV-BOOT-02..06) in `internal/testrunner/handlers_m3_v9c.go`. 2 flipped immediately on impl's §5.3 `loadInitialTrust` + schema machinery; 3 routed with new impl-side Findings for missing env hooks.
+
+### Flipped (2)
+
+| Test | Path | Mechanism |
+|---|---|---|
+| **SV-BOOT-02** | live (subprocess) | Spawn impl with `RUNNER_INITIAL_TRUST=/tmp/nonexistent-<ts>.json`. Impl `loadInitialTrust` throws `HostHardeningInsufficient(bootstrap-missing)` before Fastify binds. `readinessReached=false`; stderr contains bootstrap-missing/HostHardeningInsufficient marker. |
+| **SV-BOOT-06** | vector | `test-vectors/initial-trust/valid.json` validates against `schemas/initial-trust.schema.json`; required fields present (soaHarnessVersion="1.0", publisher_kid, spki_sha256 matches `^[A-Fa-f0-9]{64}$`, issuer). `channel-mismatch.json` rejected by closed enum. 4 inline schema negatives (missing fields, wrong-length spki, unknown top-level). |
+
+### Routed (3 with new Findings)
+
+| Test | Finding | Ask |
+|---|---|---|
+| **SV-BOOT-03** | **AP (impl+spec)** | §5.3 DNSSEC channel — no local DNSSEC infra. Need env hook `SOA_BOOTSTRAP_DNSSEC_TXT="publisher_kid=...; spki_sha256=...; issuer=..."` (loopback-guarded) + spec fixture covering valid / empty-result / missing-AD-bit. |
+| **SV-BOOT-04** | **AQ (impl)** | §5.3.1 rotation/compromise — requires ≤24h poll + revocation response. Env hook `RUNNER_BOOTSTRAP_POLL_TICK_MS` (loopback-only) + revocation-inject file/path impl watches. |
+| **SV-BOOT-05** | **AR (impl)** | §5.3.2 split-brain — requires two channels wired with divergent kids + `SOA_BOOTSTRAP_CHANNEL` declaring authority. Impl lacks multi-channel harness. Env `SOA_BOOTSTRAP_SECONDARY_CHANNEL` + corresponding fixture-path. |
+
+### Running trajectory
+
+- **Today**: 102 pass / 1 fail
+- **+ AE (CrashEvent)**: → 103
+- **+ AN (precedence gate)**: → 104
+- **+ AO (retention observability)**: → 105
+- **+ AP/AQ/AR (boot env hooks)**: → 108 (unlocks SV-BOOT-03/04/05)
+- **+ V-10 policy block** (SV-ENC 7 + SV-PRIN 5 + SV-STACK 2 + SV-OPS 2 = 16): → ~124 (crosses ≥120)
+- **+ V-11 SV-AGENTS** (7) + **V-12 HRs** (5) + **V-9e SV-SESS+STR-10** (3): → ~139
+- **+ V-9b SV-PERM-02..22** (21, closer): → ~160
+
+Moving to V-10 policy block next.
+
+---
+
 ## 2026-04-22 night (Findings AG/AH/AK land — +2 flips → 100 pass / 1 fail / 8 skip)
 
 **Scoreboard: 100 pass / 1 fail / 8 skip / 0 error (+2 from 98).** 💯
