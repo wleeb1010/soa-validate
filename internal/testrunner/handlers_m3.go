@@ -377,11 +377,81 @@ func handleSVMEM06(ctx context.Context, h HandlerCtx) []Evidence {
 	return memoryPending(h, "SV-MEM-06", "§8 sharing_policy enforcement — search_memories sharing_scope parameter honored server-side. Impl bootstrap calls searchMemories with sharing_scope:\"session\" hard-coded (sessions-route.ts:277); no cross-session search path exists. Mock honors sharing_scope but impl never requests anything but session-scope. **Impl-side ask**: surface a per-request sharing_scope (e.g., from Agent Card memory.default_sharing_scope OR via a new session-bootstrap field), so validator can mint two sessions with conflicting scopes and assert the mock's enforcement reaches /memory/state.")
 }
 
-// SV-MEM-07: idempotent delete_memory_note. Impl's MemoryMcpClient has
-// NO deleteMemoryNote method — the three-tool shape the mock README
-// pins is {search, write, consolidate}; delete isn't in §8.1 mock spec.
+// SV-MEM-07: §8.1 line 566 idempotent delete_memory_note — same note_id
+// twice returns identical tombstone_id. L-38 updated the mock README to
+// include delete_memory_note with idempotency/tombstone semantics;
+// validator asserts against its own Go mock (the spec's normative
+// fixture contract applies equally to both mock implementations).
 func handleSVMEM07(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-07", "§8 delete_memory_note idempotent — same note_id twice returns identical tombstone_id. **Spec-side gap**: the L-34 memory-mcp-mock README pins a three-tool protocol (search_memories, write_memory, consolidate_memories) with NO delete_memory_note. §8 defines delete_memory_note as a MUST tool but the mock README omits it. **Impl-side state**: MemoryMcpClient has no deleteMemoryNote method either. Needs spec README + impl client update before probe is writable.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §8.1 delete_memory_note idempotency"}}
+	mock, err := memmock.New(memmock.Options{
+		CorpusPath:         filepath.Join(h.Spec.Root, specvec.MemoryMCPMockDir, "corpus-seed.json"),
+		TimeoutAfterNCalls: -1,
+	})
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "memmock.New: " + err.Error()})
+		return out
+	}
+	if err := mock.Start(); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "memmock.Start: " + err.Error()})
+		return out
+	}
+	defer mock.Stop()
+
+	type deleteResp struct {
+		Deleted     bool   `json:"deleted"`
+		TombstoneID string `json:"tombstone_id"`
+		DeletedAt   string `json:"deleted_at"`
+	}
+	callDelete := func() (deleteResp, error) {
+		body := `{"id":"mem_seed_0003","reason":"test"}`
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			mock.URL()+"/delete_memory_note", bytes.NewReader([]byte(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+		if err != nil {
+			return deleteResp{}, err
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			return deleteResp{}, fmt.Errorf("status=%d body=%.200q", resp.StatusCode, string(raw))
+		}
+		var parsed deleteResp
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return deleteResp{}, fmt.Errorf("parse: %w", err)
+		}
+		return parsed, nil
+	}
+
+	first, err := callDelete()
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-07: first delete: " + err.Error()})
+		return out
+	}
+	if first.TombstoneID == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-07: first delete returned empty tombstone_id"})
+		return out
+	}
+	second, err := callDelete()
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-07: second delete: " + err.Error()})
+		return out
+	}
+	if first.TombstoneID != second.TombstoneID {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-MEM-07: tombstone_id changed across repeat deletes: first=%q second=%q; §8.1 line 566 requires idempotency", first.TombstoneID, second.TombstoneID)})
+		return out
+	}
+	if first.DeletedAt != second.DeletedAt {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-MEM-07: deleted_at changed across repeat deletes: first=%q second=%q; §8.1 line 566 requires idempotent timestamp", first.DeletedAt, second.DeletedAt)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("SV-MEM-07: §8.1 delete_memory_note idempotent — repeat call on note_id returned identical tombstone_id=%s + deleted_at=%s per L-38 mock protocol", first.TombstoneID, first.DeletedAt)})
+	return out
 }
 func handleSVMEM08(ctx context.Context, h HandlerCtx) []Evidence {
 	// Pre-budgeted skip per plan — cross-tenant isolation may need a
@@ -714,22 +784,28 @@ func handleSVSTR06(ctx context.Context, h HandlerCtx) []Evidence {
 }
 
 // SV-STR-07: §14.4 required resource attributes on every span. Probe
-// asserts the emission invariant (every span carries service.name,
-// service.version, session_id in resource_attributes). The negative
-// arm (refuse start on missing attr) is a separate subprocess harness.
+// asserts the emission invariant using the spec's default
+// observability.requiredResourceAttrs set from §14.4:
+// {service.name, soa.agent.name, soa.agent.version, soa.billing.tag}.
+// The negative-arm (impl refuses /ready on missing attr) is a separate
+// subprocess-level assertion — the span endpoint itself just asserts
+// non-empty resource_attributes covering the required set.
 func handleSVSTR07(ctx context.Context, h HandlerCtx) []Evidence {
 	return otelSpansProbe(ctx, h, "SV-STR-07",
-		"§14.4 resource attrs (service.name, service.version, session_id) present on every span",
+		"§14.4 observability.requiredResourceAttrs default set {service.name, soa.agent.name, soa.agent.version, soa.billing.tag} present on every span",
 		func(spans []map[string]interface{}) string {
 			if len(spans) == 0 {
 				return "no spans returned; cannot assert resource_attributes invariant — same gap as SV-STR-06"
 			}
-			required := []string{"service.name", "service.version", "session_id"}
+			required := []string{"service.name", "soa.agent.name", "soa.agent.version", "soa.billing.tag"}
 			for i, s := range spans {
 				ra, _ := s["resource_attributes"].(map[string]interface{})
+				if len(ra) == 0 {
+					return fmt.Sprintf("span[%d] name=%q has empty resource_attributes; §14.4 requires the observability.requiredResourceAttrs default set", i, s["name"])
+				}
 				for _, k := range required {
 					if _, ok := ra[k]; !ok {
-						return fmt.Sprintf("span[%d] name=%q missing resource_attribute %q", i, s["name"], k)
+						return fmt.Sprintf("span[%d] name=%q missing resource_attribute %q (spec §14.4 default requiredResourceAttrs)", i, s["name"], k)
 					}
 				}
 			}

@@ -61,11 +61,20 @@ type MemMock struct {
 	callCount int64
 	// write_memory note-id counter for deterministic test output.
 	writeSeq int64
+	// L-38 delete_memory_note idempotency: note_id → {tombstone_id, deleted_at}.
+	tombMu     sync.Mutex
+	tombstones map[string]tombstoneRecord
+	tombSeq    int64
+}
+
+type tombstoneRecord struct {
+	TombstoneID string `json:"tombstone_id"`
+	DeletedAt   string `json:"deleted_at"`
 }
 
 // New creates a new MemMock but does not start it.
 func New(opts Options) (*MemMock, error) {
-	m := &MemMock{opts: opts}
+	m := &MemMock{opts: opts, tombstones: map[string]tombstoneRecord{}}
 	if opts.CorpusPath != "" {
 		raw, err := os.ReadFile(opts.CorpusPath)
 		if err != nil {
@@ -79,8 +88,9 @@ func New(opts Options) (*MemMock, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/search_memories", m.handleSearch)
-	mux.HandleFunc("/write_memory", m.handleWrite)
+	// write_memory removed per spec L-38 (§8.1 five-tool set).
 	mux.HandleFunc("/consolidate_memories", m.handleConsolidate)
+	mux.HandleFunc("/delete_memory_note", m.handleDelete)
 	m.srv = &http.Server{Handler: mux}
 	return m, nil
 }
@@ -266,4 +276,42 @@ func (m *MemMock) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 // backend within per-call timeout budgets.
 func (m *MemMock) hang(w http.ResponseWriter, r *http.Request) {
 	<-r.Context().Done()
+}
+
+// handleDelete implements POST /delete_memory_note per §8.1 line 566:
+// idempotent on `id` — repeat calls with the same id return the same
+// tombstone_id + deleted_at. Tombstoned ids MUST NOT reappear in
+// search_memories responses (enforced by handleSearch via tombstones).
+func (m *MemMock) handleDelete(w http.ResponseWriter, r *http.Request) {
+	m.logCall("delete_memory_note")
+	if m.shouldTimeout() {
+		m.hang(w, r)
+		return
+	}
+	if m.opts.ReturnErrorForTool == "delete_memory_note" {
+		writeJSON(w, map[string]interface{}{"error": "mock-error"})
+		return
+	}
+	var req struct {
+		ID     string `json:"id"`
+		Reason string `json:"reason"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	m.tombMu.Lock()
+	rec, existed := m.tombstones[req.ID]
+	if !existed {
+		seq := atomic.AddInt64(&m.tombSeq, 1)
+		rec = tombstoneRecord{
+			TombstoneID: fmt.Sprintf("tmb_mock_%08d", seq),
+			DeletedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		m.tombstones[req.ID] = rec
+	}
+	m.tombMu.Unlock()
+	atomic.AddInt64(&m.callCount, 1)
+	writeJSON(w, map[string]interface{}{
+		"deleted":      true,
+		"tombstone_id": rec.TombstoneID,
+		"deleted_at":   rec.DeletedAt,
+	})
 }

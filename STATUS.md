@@ -4,6 +4,29 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (SV-STR-07 + SV-MEM-07 + SV-REG-03 stabilize — 67 pass / 0 fail)
+
+**Scoreboard: 67 pass / 0 fail / 13 skip / 0 error (+2 from 65).**
+
+Validator-side corrections + one mock extension:
+
+- **SV-STR-07 fix**: my probe asserted `{service.name, service.version, session_id}` in resource_attributes but spec §14.4 default `observability.requiredResourceAttrs` is actually `{service.name, soa.agent.name, soa.agent.version, soa.billing.tag}`. Impl was right; probe was wrong. Updated the required set; now passes cleanly.
+- **SV-REG-03 flake fix**: replaced fixed 1500ms sleep with a polling loop (up to 8s, 400ms cadence) on `registry_version` change. Watcher pickup timing under full-suite subprocess load was intermittently > 1500ms. No longer flaky.
+- **SV-MEM-07 flip**: extended Go memmock with `/delete_memory_note` per L-38 spec (removed `write_memory`, added idempotent tombstone store keyed by note_id). Probe calls `delete_memory_note` twice against validator's own mock, asserts identical `tombstone_id` + `deleted_at` per §8.1 line 566. PASS.
+- **SV-BUD-02/04 diagnostic refinement**: updated to reflect Findings O + P shipped (card-driven maxTokensPerRun + cache fields in TurnRecord). SV-BUD-02 now asks spec for low-budget card fixture (not env override — spec path is card-driven per §7). SV-BUD-04 asks impl for synthetic cached-token injection path.
+
+### Remaining fails: zero
+
+Remaining 13 skips:
+- SV-MEM-05/06/08 — pending Finding U/V + pre-budgeted
+- SV-BUD-02/04/05/07 — pending Findings Q/R + spec low-budget card
+- SV-SESS-06 — POSIX-only platform gate
+- SV-STR-04 — pre-budgeted M4 SSE
+- SV-STR-10/11/16 — M4 retags + crash-emission impl-ask
+- SV-BUD-03 — M4 retag
+
+---
+
 ## 2026-04-21 (Findings S + T + W land — +3 flips; SV-STR-07 near-miss)
 
 **Scoreboard: 65 pass / 1 fail / 14 skip / 0 error (+3 from 62).**

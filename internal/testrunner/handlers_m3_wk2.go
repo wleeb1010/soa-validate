@@ -46,21 +46,22 @@ func handleSVBUD01(ctx context.Context, h HandlerCtx) []Evidence {
 		return ""
 	}, "§13 projection algorithm: safety_factor=1.15, cold_start_baseline_active=true, cumulative=0 at session-start")
 }
-// SV-BUD-02: §13.2 pre-call halt. Impl DOES have the refusal path
-// (decisions-route.ts:389 terminateForBudgetExhausted + wouldExhaust
-// gate, and decisions-route.ts:763 post-recordTurn termination). But
-// exhausting the default 200k maxTokensPerRun requires ~391 decisions
-// at 512 tokens/turn — impractical for a conformance run. Needs a
-// test-scale override so the validator can drive 2-3 turns into a
-// tripwire budget.
+// SV-BUD-02: §13.2 pre-call halt. Finding O (e42db21) made maxTokensPerRun
+// card-driven per §7 line 375/379 — impl reads card.tokenBudget.maxTokensPerRun
+// (start-runner.ts:443). Conformance card pins 200000 with no low-budget
+// variant. **Spec-side ask**: ship a `test-vectors/conformance-card-low-budget/`
+// fixture with tokenBudget.maxTokensPerRun=500 (or similar) so validator can
+// RUNNER_CARD_FIXTURE at it and drive exhaustion in 1-2 decisions at
+// 512-token per-turn estimate. Without it the assertion is theoretically
+// provable but practically unreachable in a conformance run.
 func handleSVBUD02(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-02", "§13.2 pre-call halt. Impl has wouldExhaust() + terminateForBudgetExhausted() — the refusal wiring is in decisions-route.ts. But maxTokensPerRun is hard-coded to 200_000 (start-runner.ts:384) with a 512-token/turn estimate, so exhausting takes ~391 decisions — impractical at conformance-run scale. **Impl-side ask: accept a RUNNER_MAX_TOKENS_PER_RUN env override (or SOA_RUNNER_MAX_TOKENS_PER_RUN per production-guard pattern) so validator can spawn a subprocess with max=1000 and drive 2 decisions into a BudgetExhausted refusal.**")
+	return budgetPending(h, "SV-BUD-02", "§13.2 pre-call halt. Finding O shipped — impl now reads card.tokenBudget.maxTokensPerRun per §7. Conformance card pins 200000 (200k tokens) = ~391 decisions at 512/turn to exhaust — impractical at conformance-run scale. **Spec-side ask**: ship a `test-vectors/conformance-card-low-budget/` pinned fixture with tokenBudget.maxTokensPerRun=500 so validator can drive BudgetExhausted refusal in 2 decisions via RUNNER_CARD_FIXTURE. Impl's wouldExhaust() + terminateForBudgetExhausted() wiring at decisions-route.ts:389/763 is ready; only the fixture is missing.")
 }
 func handleSVBUD03(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on next ContentBlockDelta boundary. Requires real LLM dispatcher + ContentBlockDelta streaming (M4 scope); M3 impl stops before real dispatch. **Retag candidate M3 → M4** — identical routing rationale to SV-STR-11.")
+	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on next ContentBlockDelta boundary. Requires real LLM dispatcher + ContentBlockDelta streaming (M4 scope); M3 impl stops before real dispatch. **M3 → M4 retag accepted (L-37)** — deferred to M4 streaming dispatcher landing.")
 }
 func handleSVBUD04(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-04", "§13 cached input counted at 10% (or provider-advertised ratio). Impl exposes cache_accounting in /budget/projection (prompt_tokens_cached + completion_tokens_cached) but recordTurn(sid, TurnRecord) only accepts `actual_total_tokens` — the cached-totals fields stay 0 forever because nothing feeds them. **Impl-side ask: extend TurnRecord + recordTurn to accept `prompt_tokens_cached` + `completion_tokens_cached` so the 10% ratio is observable via /budget/projection after driven turns.**")
+	return budgetPending(h, "SV-BUD-04", "§13 cached input counted at 10%. Finding P shipped — TurnRecord now carries prompt_tokens_cached + completion_tokens_cached, BudgetState accumulates the totals, /budget/projection.cache_accounting exposes them. But M3 decisions-route calls recordTurn with only {actual_total_tokens: 512} (decisions-route.ts:757); cached fields aren't fed anywhere in the live path because M3 has no LLM dispatcher. **Impl-side ask**: accept synthetic cached-token values via the /permissions/decisions body (optional `prompt_tokens_cached` + `completion_tokens_cached` request fields) OR a test-only env hook, so validator can drive {total=1000, prompt_cached=500} turns and assert projection applies the 10% ratio to the cached portion.")
 }
 func handleSVBUD05(ctx context.Context, h HandlerCtx) []Evidence {
 	return budgetPending(h, "SV-BUD-05", "§13 billingTag present on OTel resource + audit record + events. **Zero grep matches for billing_tag / billingTag in impl src** — the primitive is not implemented anywhere. Spec requires it in the Agent Card manifest, session bootstrap, audit record fields, and OTel resource attributes. **Impl-side ask: implement billing_tag end-to-end: (1) bootstrap accepts `billing_tag` field, (2) audit records carry `billing_tag`, (3) /events/recent events carry `billing_tag` payload field, (4) OTel resource sets `soa.billing.tag` (§14.4 normative).**")
@@ -352,23 +353,25 @@ func handleSVREG03(ctx context.Context, h HandlerCtx) []Evidence {
 		if err := os.WriteFile(triggerPath, []byte(newTool), 0644); err != nil {
 			return "write trigger: " + err.Error(), false
 		}
-		// Wait for watcher to poll (impl default 250ms) + settle.
-		time.Sleep(1500 * time.Millisecond)
-
-		// Post-trigger: /tools/registered advanced; session /state unchanged.
-		reg2, regCode2, _ := getToolsRegisteredRaw(probeCtx, client, sbearer)
-		if regCode2 != http.StatusOK {
-			return fmt.Sprintf("post-trigger /tools/registered status=%d", regCode2), false
-		}
+		// Poll up to 8s for the watcher pickup (impl default cadence 250ms,
+		// but loaded-host scheduler delay observed in full-suite runs).
 		var r2 struct {
 			Tools           []map[string]interface{} `json:"tools"`
 			RegistryVersion string                   `json:"registry_version"`
 		}
-		if err := json.Unmarshal(reg2, &r2); err != nil {
-			return "post-trigger /tools/registered parse: " + err.Error(), false
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(400 * time.Millisecond)
+			reg2, regCode2, _ := getToolsRegisteredRaw(probeCtx, client, sbearer)
+			if regCode2 != http.StatusOK {
+				continue
+			}
+			if err := json.Unmarshal(reg2, &r2); err == nil && r2.RegistryVersion != r1.RegistryVersion {
+				break
+			}
 		}
 		if r1.RegistryVersion == r2.RegistryVersion {
-			return fmt.Sprintf("registry_version unchanged (%s); §11.3.1 requires global-registry advance on dynamic add. Watcher may not have polled; wait extended, trigger file=%s", r1.RegistryVersion, triggerPath), false
+			return fmt.Sprintf("registry_version unchanged after 8s poll (%s); §11.3.1 requires global-registry advance on dynamic add. Watcher may not have polled; trigger file=%s", r1.RegistryVersion, triggerPath), false
 		}
 		if len(r2.Tools) != len(r1.Tools)+1 {
 			return fmt.Sprintf("tool count %d → %d; want +1 after dynamic add", len(r1.Tools), len(r2.Tools)), false
