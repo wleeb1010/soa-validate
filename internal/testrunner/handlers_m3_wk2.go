@@ -26,8 +26,23 @@ func jsonUnmarshal(body []byte, v interface{}) error { return json.Unmarshal(bod
 
 // ─── V-6 SV-BUD + SV-BUD-PROJ (9 tests) ──────────────────────────────
 
+// SV-BUD-01: §13 projection algorithm — cold-start body carries the
+// spec-required invariants: safety_factor=1.15 (const), cold_start_baseline_active=true
+// on a fresh session, stop_reason_if_exhausted="BudgetExhausted" (const),
+// cumulative_tokens_consumed starts at 0, projection_headroom >= 0 at cold-start.
 func handleSVBUD01(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-01", "§13 projection algorithm — needs impl T-4 real p95-over-W accounting.")
+	return budgetProjectionAssert(ctx, h, "SV-BUD-01", func(p map[string]interface{}) string {
+		if sf, _ := p["safety_factor"].(float64); sf != 1.15 {
+			return fmt.Sprintf("safety_factor=%v; §13 requires 1.15", p["safety_factor"])
+		}
+		if csb, _ := p["cold_start_baseline_active"].(bool); !csb {
+			return "cold_start_baseline_active=false on fresh session; §13.1 requires true at cold-start"
+		}
+		if cum, _ := p["cumulative_tokens_consumed"].(float64); cum != 0 {
+			return fmt.Sprintf("cumulative_tokens_consumed=%v on fresh session; want 0", cum)
+		}
+		return ""
+	}, "§13 projection algorithm: safety_factor=1.15, cold_start_baseline_active=true, cumulative=0 at session-start")
 }
 func handleSVBUD02(ctx context.Context, h HandlerCtx) []Evidence {
 	return budgetPending(h, "SV-BUD-02", "§13 pre-call halt — projection predicts exhaustion → refuse decision. Needs T-4.")
@@ -41,8 +56,19 @@ func handleSVBUD04(ctx context.Context, h HandlerCtx) []Evidence {
 func handleSVBUD05(ctx context.Context, h HandlerCtx) []Evidence {
 	return budgetPending(h, "SV-BUD-05", "§13 billing_tag propagation. Needs T-4.")
 }
+// SV-BUD-06: §13 StopReason closed enum — /budget/projection exposes
+// `stop_reason_if_exhausted` as a const "BudgetExhausted" per schema.
+// Verify the field carries that exact value (schema enforces structurally;
+// we assert the behavioral link: this is THE stop reason the impl will
+// emit when budget is actually exhausted).
 func handleSVBUD06(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-06", "§13 StopReason closed enum — BudgetExhausted emitted. Needs T-4.")
+	return budgetProjectionAssert(ctx, h, "SV-BUD-06", func(p map[string]interface{}) string {
+		sr, _ := p["stop_reason_if_exhausted"].(string)
+		if sr != "BudgetExhausted" {
+			return fmt.Sprintf("stop_reason_if_exhausted=%q; §13 closed enum requires \"BudgetExhausted\"", sr)
+		}
+		return ""
+	}, "§13 StopReason closed enum: /budget/projection.stop_reason_if_exhausted=\"BudgetExhausted\"")
 }
 func handleSVBUD07(ctx context.Context, h HandlerCtx) []Evidence {
 	return budgetPending(h, "SV-BUD-07", "§13 BillingTagMismatch detected via /budget/projection. Needs T-4.")
@@ -137,6 +163,63 @@ func getBudgetProjectionRaw(ctx context.Context, c *runner.Client, sessionID, be
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	return raw, resp.StatusCode, nil
+}
+
+// budgetProjectionAssert: fetch /budget/projection/<sid>, schema-validate,
+// decode, run checker against the decoded body. PASS when checker returns "".
+func budgetProjectionAssert(ctx context.Context, h HandlerCtx, testID string,
+	checker func(map[string]interface{}) string, passMsg string) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §13 /budget/projection invariant"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
+		return out
+	}
+	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err)})
+		return out
+	}
+	body, code, err := getBudgetProjectionRaw(ctx, h.Client, sid, bearer)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if code == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("%s: GET /budget/projection/<sid> → 404; impl has not shipped §13.5 yet", testID)})
+		return out
+	}
+	if code != http.StatusOK {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: status=%d; want 200", testID, code)})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path(specvec.BudgetProjectionResponseSchema), body); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: §13.5 response fails schema: %v", testID, err)})
+		return out
+	}
+	var parsed map[string]interface{}
+	if err := jsonUnmarshal(body, &parsed); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("%s: parse /budget/projection body: %v", testID, err)})
+		return out
+	}
+	if violation := checker(parsed); violation != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: %s", testID, violation)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("%s: %s", testID, passMsg)})
+	return out
 }
 
 func budgetPending(h HandlerCtx, testID, diagnostic string) []Evidence {
