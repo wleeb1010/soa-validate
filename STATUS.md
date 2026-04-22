@@ -4,6 +4,45 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (L-36 + L-37 adopted; V-9c SV-MEM mock + 2 flips)
+
+**Pin-bumped 038ba1b → c33a411.** L-36 resolves 3 of the 5 SV-STR routing items in one drop (§14.5.2 `/observability/otel-spans/recent`, §14.5.3 `/observability/backpressure`, SV-STR-11/16 M3→M4). L-37 retags SV-BUD-03 M3→M4 + records V-9b impl punch list. Milestone tally: M3: 136 / M4: 11 / M5: 60 / M2: 22 / M1: 1.
+
+**Scoreboard: 61 pass / 0 fail / 19 skip / 0 error.** V-9c expected +7, delivered +2 — the mock + impl end-to-end works for the two probes the impl actually exercises (search_memories at session bootstrap + deterministic slice across rapid loads). The other 5 SV-MEM assertions need impl surfaces that aren't wired yet; diagnostics tightened into impl + spec asks.
+
+### V-9c probe + mock shape
+
+- New `internal/memmock/` — Go HTTP mock server speaking the three-tool protocol pinned by L-34 (`search_memories`, `write_memory`, `consolidate_memories`). Validator-built from scratch per the fixture README guidance. Env-driven behaviors: `TimeoutAfterNCalls`, `ReturnErrorForTool`, corpus-seed loading from `test-vectors/memory-mcp-mock/corpus-seed.json`. Exposes `URL()`, `CallLog()`, `CallCount()` for assertions.
+- Probe harness: `memProbeEnv` — starts an in-process mock, spawns an impl subprocess with `SOA_RUNNER_MEMORY_MCP_ENDPOINT=<mock-url>` + Agent Card + tools fixture, returns the handle set needed for `launchProbeKill`.
+- Composite-score normalization in mock (output clamped to `[0,1]`) after first run surfaced a 500 on `/memory/state` — impl validates note schema on `memoryStore.recordLoad` and rejects out-of-range scores.
+
+### Flipped
+
+| Test | Assertion |
+|---|---|
+| SV-MEM-01 | §8.1 search_memories reachable via `SOA_RUNNER_MEMORY_MCP_ENDPOINT`; `/memory/state.in_context_notes` populated after bootstrap |
+| SV-MEM-02 | §8.2 deterministic slice — two rapid session loads return identical `note_id` ordering |
+
+### Stayed skip with sharpened diagnostics (impl + spec asks routed)
+
+| Test | Gap | Routing |
+|---|---|---|
+| SV-MEM-03 | impl has no startup probe — `MemoryMcpClient` constructed lazily with no readiness check | **impl-ask**: add a startup-time probe that surfaces `MemoryUnavailableStartup` before `/ready` flips to 200 |
+| SV-MEM-04 | impl emits `SessionEnd{MemoryDegraded}` on EVERY timeout; `MemoryDegradationTracker.isDegraded()` threshold-3 gate is measured but never gates termination | **impl-ask**: gate `SessionEnd` on `isDegraded()`. **spec-check**: does spec want a non-terminal MemoryDegraded stream event distinct from the terminal SessionEnd.stop_reason? L-34 clarified stop_reason only — SV-MEM-04's "continue with stale slice" implies a separate observability signal not in the 27-value enum. |
+| SV-MEM-05 | consolidateMemories plumbed but nothing calls it — no scheduler, no per-turn counter | **impl-ask**: background 24h timer + per-session note-count counter (>=100 threshold) |
+| SV-MEM-06 | impl hard-codes `sharing_scope:"session"` at bootstrap; no cross-session path | **impl-ask**: surface sharing_scope from Agent Card memory.default_sharing_scope OR session-bootstrap field |
+| SV-MEM-07 | `delete_memory_note` absent from both impl's MemoryMcpClient AND the L-34 mock README three-tool protocol | **spec-gap**: mock README needs to pin delete_memory_note OR §8 assertion needs revising. **impl-ask**: after spec settles, add deleteMemoryNote method |
+
+**SV-MEM-08** stays pre-budgeted (cross-tenant isolation needs a real Memory MCP beyond mock scope).
+
+### V-9 aggregate so far
+
+- V-9a stream: +6 flips (53→59)
+- V-9b budget: +0 flips; 4 impl-asks + 1 M4 retag routed (L-37 accepted)
+- V-9c memory: +2 flips (59→61); 4 impl-asks + 1 spec-gap routed
+
+---
+
 ## 2026-04-21 (V-9b SV-BUD routing — 0 flips, 5 surgical impl-findings)
 
 **Scoreboard: 59 pass / 0 fail / 21 skip / 0 error (unchanged).** V-9b expected +5, delivered +0 — impl surfaces for 4 of 5 tests are either hard-coded or entirely absent; sharpening the skip diagnostics into a concrete impl punch list is the valuable V-9b output.

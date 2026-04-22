@@ -16,35 +16,227 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
+	"github.com/wleeb1010/soa-validate/internal/memmock"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
 
 // ─── §8 Memory handlers (10 tests — V-4) ─────────────────────────────
 
+// memProbeEnv spawns an impl subprocess wired to a freshly-started
+// Go memmock and returns (bin, args, env, mock, port, cleanup). Caller
+// MUST defer cleanup() — it stops the mock + frees subprocess resources.
+// Returns an Evidence-ready skip if SOA_IMPL_BIN is unset.
+func memProbeEnv(h HandlerCtx, mockOpts memmock.Options) (cmdBin string, cmdArgs []string, env map[string]string, mock *memmock.MemMock, implPort int, cleanup func(), skipReason string) {
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return "", nil, nil, nil, 0, func() {}, "SOA_IMPL_BIN unset; subprocess spawn required"
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	if mockOpts.CorpusPath == "" {
+		mockOpts.CorpusPath = filepath.Join(specRoot, specvec.MemoryMCPMockDir, "corpus-seed.json")
+	}
+	m, err := memmock.New(mockOpts)
+	if err != nil {
+		return "", nil, nil, nil, 0, func() {}, "memmock.New: " + err.Error()
+	}
+	if err := m.Start(); err != nil {
+		return "", nil, nil, nil, 0, func() {}, "memmock.Start: " + err.Error()
+	}
+	port := implTestPort()
+	bearer := "svmem-test-bearer"
+	env = map[string]string{
+		"RUNNER_PORT":                      strconv.Itoa(port),
+		"RUNNER_HOST":                      "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":             filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":              filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":             filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":                 "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":      bearer,
+		"SOA_RUNNER_MEMORY_MCP_ENDPOINT":   m.URL(),
+	}
+	return bin, args, env, m, port, func() { m.Stop() }, ""
+}
+
+// SV-MEM-01: Memory MCP tools discoverable and impl consumes them at
+// session bootstrap. Observable via /memory/state — a minted session's
+// in_context_notes reflect the mock's search_memories response, proving
+// the full round-trip tool invocation.
 func handleSVMEM01(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-01", "§8.1 tool signatures — SOA-compliant memory MCP server required; consume test-vectors/memory-mcp-mock/ per L-34. Blocks on impl T-0.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §8.1 memory tool discoverability via subprocess impl + in-process memmock"}}
+	bin, args, env, mock, port, cleanup, skip := memProbeEnv(h, memmock.Options{TimeoutAfterNCalls: -1})
+	defer cleanup()
+	if skip != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SV-MEM-01: " + skip})
+		return out
+	}
+	bearer := env["SOA_RUNNER_BOOTSTRAP_BEARER"]
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 3 * time.Second})
+		sid, sbearer, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap: status=%d err=%v", status, err), false
+		}
+		// /memory/state MUST reflect the prefetch-on-bootstrap load.
+		body, code, err := getMemoryStateRaw(probeCtx, client, sid, sbearer)
+		if err != nil {
+			return "GET /memory/state: " + err.Error(), false
+		}
+		if code != http.StatusOK {
+			return fmt.Sprintf("GET /memory/state status=%d; want 200", code), false
+		}
+		var state struct {
+			InContextNotes []map[string]interface{} `json:"in_context_notes"`
+		}
+		if err := json.Unmarshal(body, &state); err != nil {
+			return "parse /memory/state: " + err.Error(), false
+		}
+		if len(state.InContextNotes) == 0 {
+			return fmt.Sprintf("/memory/state.in_context_notes empty — impl did not load from mock; mock call log=%v", mock.CallLog()), false
+		}
+		if !contains(mock.CallLog(), "search_memories") {
+			return "mock did not receive search_memories — impl's MemoryMcpClient did not invoke the tool at bootstrap", false
+		}
+		return fmt.Sprintf("SV-MEM-01: §8.1 search_memories reachable via SOA_RUNNER_MEMORY_MCP_ENDPOINT; /memory/state.in_context_notes=%d after bootstrap (mock recorded %d tool calls: %v)", len(state.InContextNotes), mock.CallCount(), mock.CallLog()), true
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-01: " + msg})
+	}
+	return out
 }
+
+// SV-MEM-02: scoring determinism. Two rapid sessions with the same
+// user_sub → identical in_context_notes ordering (note_id sequence).
 func handleSVMEM02(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-02", "§8 loading algorithm order (retrieve → rank → insert → emit MemoryInsert). Blocks on impl T-0.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §8.2 deterministic slice across two rapid loads"}}
+	bin, args, env, _, port, cleanup, skip := memProbeEnv(h, memmock.Options{TimeoutAfterNCalls: -1})
+	defer cleanup()
+	if skip != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SV-MEM-02: " + skip})
+		return out
+	}
+	bearer := env["SOA_RUNNER_BOOTSTRAP_BEARER"]
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 3 * time.Second})
+		seq1, err := loadAndReadNoteIDs(probeCtx, client, bearer)
+		if err != nil {
+			return "load 1: " + err.Error(), false
+		}
+		seq2, err := loadAndReadNoteIDs(probeCtx, client, bearer)
+		if err != nil {
+			return "load 2: " + err.Error(), false
+		}
+		if !sliceEqual(seq1, seq2) {
+			return fmt.Sprintf("non-deterministic ordering across two loads: seq1=%v seq2=%v", seq1, seq2), false
+		}
+		if len(seq1) == 0 {
+			return "both loads returned empty in_context_notes; can't assert determinism", false
+		}
+		return fmt.Sprintf("SV-MEM-02: §8.2 deterministic slice — two rapid loads returned identical note_id ordering (%d notes): %v", len(seq1), seq1), true
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-02: " + msg})
+	}
+	return out
 }
+
+// loadAndReadNoteIDs mints a session, reads /memory/state, returns the
+// ordered note_id sequence from in_context_notes.
+func loadAndReadNoteIDs(ctx context.Context, client *runner.Client, bootstrapBearer string) ([]string, error) {
+	sid, sbearer, status, err := m2Bootstrap(ctx, client, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		return nil, fmt.Errorf("bootstrap status=%d err=%v", status, err)
+	}
+	body, code, err := getMemoryStateRaw(ctx, client, sid, sbearer)
+	if err != nil {
+		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("/memory/state status=%d", code)
+	}
+	var state struct {
+		InContextNotes []struct {
+			NoteID string `json:"note_id"`
+		} `json:"in_context_notes"`
+	}
+	if err := json.Unmarshal(body, &state); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	out := make([]string, len(state.InContextNotes))
+	for i, n := range state.InContextNotes {
+		out[i] = n.NoteID
+	}
+	return out, nil
+}
+
+func contains(ss []string, target string) bool {
+	for _, s := range ss {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
+func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// SV-MEM-03: startup fail-closed when Memory MCP unreachable. Spec §8.3
+// requires MemoryUnavailableStartup at boot; impl today does NOT probe
+// at startup (opts.memoryClient constructed lazily, no readiness check).
+// Skip-pending with precise impl-ask.
 func handleSVMEM03(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-03", "§8 startup fail-closed — impl MUST refuse to serve when Memory MCP unreachable at boot; subprocess spawn with SOA_MEMORY_MCP_MOCK_* env hooks. Blocks on impl T-0.")
+	return memoryPending(h, "SV-MEM-03", "§8.3 startup fail-closed — impl MUST refuse /ready (or exit non-zero) when SOA_RUNNER_MEMORY_MCP_ENDPOINT is set but the endpoint is unreachable at boot, emitting MemoryUnavailableStartup. **Impl-side ask**: add a startup-time probe to MemoryMcpClient (e.g., a 1s HEAD or search-with-empty-query against the endpoint) that surfaces MemoryUnavailableStartup before /ready flips to 200. Current impl constructs the client lazily in bin/start-runner.ts:391 with no readiness check.")
 }
+
+// SV-MEM-04: mid-loop timeout → MemoryDegraded. Impl has
+// MemoryDegradationTracker with threshold=3 but sessions-route emits
+// SessionEnd{stop_reason:MemoryDegraded} on EVERY timeout (line 302),
+// not only after the 3-consecutive gate fires. That's an impl contract
+// divergence from §8.3's three-consecutive-failure rule.
 func handleSVMEM04(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-04", "§8.3 mid-loop degrade — impl MUST emit SessionEnd{stop_reason:MemoryDegraded} via /events/recent per §8.3.1 (NOT a bare event type). Blocks on impl T-0 + T-2.")
+	return memoryPending(h, "SV-MEM-04", "§8.3 single mid-loop timeout → MemoryDegraded observability event, session continues with stale slice. Impl emits SessionEnd{stop_reason:MemoryDegraded} on EVERY timeout (sessions-route.ts:302), bypassing the MemoryDegradationTracker's 3-consecutive gate. **Impl-side ask**: gate SessionEnd emission on `memoryDegradation.isDegraded()` (i.e., only after 3 consecutive failures); single timeout should emit a non-terminal MemoryDegraded observability signal instead. Spec L-34 clarified MemoryDegraded is a SessionEnd.stop_reason; the 'continue with stale slice' in SV-MEM-04 implies a separate lower-severity signal that L-34 didn't enumerate — **spec-side check**: does spec want a non-terminal MemoryDegraded stream event, or is SV-MEM-04 asserting the 3-consecutive rule threshold behavior?")
 }
+
+// SV-MEM-05: consolidate_memories trigger — impl has no time-based or
+// count-based consolidation trigger in M3 scope (the consolidate tool
+// is plumbed but never invoked without LLM dispatch).
 func handleSVMEM05(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-05", "§8.2 consolidation trigger — MemoryConsolidated event. Blocks on impl T-0 + T-2.")
+	return memoryPending(h, "SV-MEM-05", "§8.2 consolidate_memories invoked within 24h or after 100 new notes. Impl's MemoryMcpClient has the consolidateMemories method plumbed but nothing calls it — no scheduler, no per-turn counter. M3 scope stops before LLM dispatch + turn-counter wiring. **Impl-side ask**: add a consolidation trigger — simplest: background timer (24h default, env-overridable for test) that invokes consolidateMemories across all active sessions; second: note-count counter per session that fires at >=100 writes.")
 }
+
+// SV-MEM-06: sharing_policy enforcement — cross-session search honors
+// sharing_scope. Impl's sessions-route calls searchMemories with
+// sharing_scope:"session" hard-coded; no cross-session path exercised.
 func handleSVMEM06(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-06", "§8 sharing_policy enforcement — search_memories sharing_scope honored. Blocks on impl T-0.")
+	return memoryPending(h, "SV-MEM-06", "§8 sharing_policy enforcement — search_memories sharing_scope parameter honored server-side. Impl bootstrap calls searchMemories with sharing_scope:\"session\" hard-coded (sessions-route.ts:277); no cross-session search path exists. Mock honors sharing_scope but impl never requests anything but session-scope. **Impl-side ask**: surface a per-request sharing_scope (e.g., from Agent Card memory.default_sharing_scope OR via a new session-bootstrap field), so validator can mint two sessions with conflicting scopes and assert the mock's enforcement reaches /memory/state.")
 }
+
+// SV-MEM-07: idempotent delete_memory_note. Impl's MemoryMcpClient has
+// NO deleteMemoryNote method — the three-tool shape the mock README
+// pins is {search, write, consolidate}; delete isn't in §8.1 mock spec.
 func handleSVMEM07(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-07", "§8 delete_memory_note idempotent — same note_id twice, same result. Blocks on impl T-0.")
+	return memoryPending(h, "SV-MEM-07", "§8 delete_memory_note idempotent — same note_id twice returns identical tombstone_id. **Spec-side gap**: the L-34 memory-mcp-mock README pins a three-tool protocol (search_memories, write_memory, consolidate_memories) with NO delete_memory_note. §8 defines delete_memory_note as a MUST tool but the mock README omits it. **Impl-side state**: MemoryMcpClient has no deleteMemoryNote method either. Needs spec README + impl client update before probe is writable.")
 }
 func handleSVMEM08(ctx context.Context, h HandlerCtx) []Evidence {
 	// Pre-budgeted skip per plan — cross-tenant isolation may need a

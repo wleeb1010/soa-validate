@@ -87,6 +87,10 @@ const (
 	StreamEventSchema         = "schemas/stream-event.schema.json"
 	StreamEventPayloadsSchema = "schemas/stream-event-payloads.schema.json"
 
+	// L-36 — §14.5.2 + §14.5.3 new observability endpoints.
+	OTelSpansRecentResponseSchema   = "schemas/otel-spans-recent-response.schema.json"
+	BackpressureStatusResponseSchema = "schemas/backpressure-status-response.schema.json"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 
