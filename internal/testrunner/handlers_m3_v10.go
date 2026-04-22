@@ -8,6 +8,8 @@ package testrunner
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -247,13 +249,103 @@ func handleSVENC05(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: fmt.Sprintf("§1 JCS (RFC 8785): %d cases round-tripped byte-identically across {%s}", totalCases, strings.Join(perFile, ", "))}}
 }
 
-// ─── SV-ENC-06 §1 — JWT iat/exp ±30s (vector-unavailable) ────────────
-
+// ─── SV-ENC-06 §1 — JWT iat/exp ±30s (L-44 fixture) ──────────────────
+//
+// T_REF = 2026-04-22T12:00:00Z (UNIX 1776948000). ±30s window per §1:
+// accept when |iat - T_REF| ≤ 30s AND exp > T_REF - 30s (exp grace).
+// Each fixture is Ed25519-signed by handler-keypair; validator decodes
+// header+payload, verifies signature against handler public JWK, then
+// computes the expected verdict.
 func handleSVENC06(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathVector, Status: StatusSkip,
-		Message: "SV-ENC-06 (§1 JWT clock-skew ±30s): needs JWT fixtures with iat/exp in/out of the ±30s window to exercise AuthFailed. " +
-			"Validator would decode + compare against a reference verifier clock. **Finding AS (spec)**: ship test-vectors/jwt-clock-skew/ " +
-			"with {iat-in-window.jwt, iat-past.jwt, iat-future.jwt, exp-expired.jwt} + a reference-clock constant in README."}}
+	// T_REF = UNIX 1776948000 (the constant the L-44 JWTs are signed against).
+	// The README label "2026-04-22T12:00:00Z" is a minor inconsistency;
+	// the UNIX epoch the iat/exp math references is authoritative.
+	tRef := time.Unix(1776948000, 0).UTC()
+	pubKey, err := readHandlerEd25519Pubkey(h.Spec)
+	if err != nil {
+		return []Evidence{{Path: PathVector, Status: StatusError, Message: "load handler key: " + err.Error()}}
+	}
+	type verdict struct {
+		accept bool
+		reason string
+	}
+	cases := []struct {
+		id       string
+		path     string
+		expected verdict
+	}{
+		{"iat-in-window", specvec.JWTClockSkewIatInWindow, verdict{accept: true}},
+		{"iat-past", specvec.JWTClockSkewIatPast, verdict{accept: false, reason: "iat-past-skew"}},
+		{"iat-future", specvec.JWTClockSkewIatFuture, verdict{accept: false, reason: "iat-future-skew"}},
+		{"exp-expired", specvec.JWTClockSkewExpExpired, verdict{accept: false, reason: "exp-expired"}},
+	}
+	const skew = 30 * time.Second
+	for _, c := range cases {
+		raw, err := h.Spec.Read(c.path)
+		if err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusError, Message: "read " + c.id + ": " + err.Error()}}
+		}
+		parts := strings.Split(strings.TrimSpace(string(raw)), ".")
+		if len(parts) != 3 {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s: expected 3 JWT segments, got %d", c.id, len(parts))}}
+		}
+		hdrRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
+		if err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusFail, Message: c.id + " header b64: " + err.Error()}}
+		}
+		var hdr struct {
+			Alg, Kid, Typ string
+		}
+		_ = json.Unmarshal(hdrRaw, &hdr)
+		if hdr.Alg != "EdDSA" || hdr.Typ != "JWT" || hdr.Kid != "soa-conformance-test-handler-v1.0" {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s header mismatch: alg=%q kid=%q typ=%q", c.id, hdr.Alg, hdr.Kid, hdr.Typ)}}
+		}
+		payloadRaw, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusFail, Message: c.id + " payload b64: " + err.Error()}}
+		}
+		var payload struct {
+			Iat int64 `json:"iat"`
+			Exp int64 `json:"exp"`
+		}
+		_ = json.Unmarshal(payloadRaw, &payload)
+		sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+		if err != nil {
+			return []Evidence{{Path: PathVector, Status: StatusFail, Message: c.id + " sig b64: " + err.Error()}}
+		}
+		signingInput := []byte(parts[0] + "." + parts[1])
+		if !ed25519.Verify(pubKey, signingInput, sig) {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: c.id + ": Ed25519 signature fails against handler-keypair"}}
+		}
+		// ±30s window rule against T_REF.
+		iat := time.Unix(payload.Iat, 0).UTC()
+		exp := time.Unix(payload.Exp, 0).UTC()
+		iatDiff := iat.Sub(tRef)
+		iatPast := iatDiff < -skew
+		iatFuture := iatDiff > skew
+		expExpired := exp.Before(tRef.Add(-skew))
+		var got verdict
+		switch {
+		case expExpired:
+			got = verdict{accept: false, reason: "exp-expired"}
+		case iatPast:
+			got = verdict{accept: false, reason: "iat-past-skew"}
+		case iatFuture:
+			got = verdict{accept: false, reason: "iat-future-skew"}
+		default:
+			got = verdict{accept: true}
+		}
+		if got != c.expected {
+			return []Evidence{{Path: PathVector, Status: StatusFail,
+				Message: fmt.Sprintf("%s verdict mismatch: got {accept=%v reason=%q}, want {accept=%v reason=%q}; iat=%s exp=%s tRef=%s",
+					c.id, got.accept, got.reason, c.expected.accept, c.expected.reason, iat, exp, tRef)}}
+		}
+	}
+	return []Evidence{{Path: PathVector, Status: StatusPass,
+		Message: "§1 JWT clock-skew ±30s: 4 fixtures verified against handler-keypair + computed verdict matches spec — accept/iat-past-skew/iat-future-skew/exp-expired"}}
 }
 
 // ─── SV-ENC-07 §1 — PDA not_before/not_after ±60s + window ≤15min ────

@@ -4,6 +4,49 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-44 pin + SV-ENC-06 flip + V-11 routed — 120 pass / 0 fail / 17 skip) 🎯
+
+**Scoreboard: 120 pass / 0 fail / 17 skip / 0 error (+1 pass from 119). ≥120 M3 target crossed.**
+
+Pin: 82b5332 → `bebc6bd`; manifest `94bf2a1b4b41c39a25a1d581da453c13cd770ee69e6a0841f444ca0dd2edc11e` byte-verified. L-44 closes Finding AS with the JWT clock-skew fixture set.
+
+### Flipped (1)
+
+| Test | Path | Mechanism |
+|---|---|---|
+| **SV-ENC-06** | vector | Load all 4 L-44 fixtures; parse header (alg=EdDSA, kid=soa-conformance-test-handler-v1.0, typ=JWT); Ed25519-verify signature over `<headerB64>.<payloadB64>` against handler-keypair public JWK; compute ±30s window verdict against T_REF=UNIX 1776948000. All four verdicts match spec: iat-in-window→accept, iat-past→iat-past-skew, iat-future→iat-future-skew, exp-expired→exp-expired. |
+
+### V-11 routed (7 with a single impl Finding AT)
+
+All 7 SV-AGENTS tests blocked on impl: `parseAgentsMdDenyList` (registry/agents-md.ts) handles only the `## Agent Type Constraints` → `### Deny` denylist subset used by SV-REG-04. Full §7.2/§7.3 parser (7 required H2 order+uniqueness, @import depth ≤ 8, cycle detection, mid-turn reload semantics, entrypoint cross-check) not shipped.
+
+**Finding AT (impl)**: implement the full §7.2 + §7.3 AGENTS.md parser with:
+- §7.2 missing/duplicate/out-of-order H2 → `AgentsMdInvalid` (data.reason ∈ {missing-h2, h2-duplicate, h2-out-of-order, entrypoint-mismatch})
+- §7.3 @import depth > 8 → `AgentsMdImportDepthExceeded`
+- §7.3 @import A→B→A cycle → `AgentsMdImportCycle`
+- §7.4 mid-turn file change → ignored until turn end
+- Each as a System Event Log record on `/logs/system/recent` (category=Config, level=error)
+
+Spec-side follow-up (Finding AU): may need a fixture set at `test-vectors/agents-md-grammar/{missing-h2, duplicate-h2, out-of-order-h2, import-depth-9, import-cycle, mid-turn-reload, entrypoint-mismatch}/` to drive the seven probes.
+
+### Assertion calibrations
+
+- **SV-ENC-06 T_REF correction**: README labels T_REF as `2026-04-22T12:00:00Z`, but UNIX `1776948000` (which is what the JWTs are actually signed against) resolves to `2026-04-23 12:40:00 UTC`. The UNIX epoch is authoritative across the fixtures; probe pins that value directly rather than parsing the README label. Minor inconsistency; fixtures are internally self-consistent so the ±30s math still validates.
+
+### Running trajectory
+
+- **Today**: 120 pass / 0 fail (≥120 target crossed)
+- **+ AE (CrashEvent, impl pending)**: → 121
+- **+ AP/AQ/AR (boot env hooks, impl pending)**: → 124
+- **+ AT + AU (AGENTS.md parser + fixtures)**: → 131
+- **+ V-12 testable HRs** (5): → ~136
+- **+ V-9e SV-SESS+STR-10** (3): → ~139
+- **+ V-9b SV-PERM-02..22** (21, closer): → ~160
+
+Moving to V-12 testable HRs next.
+
+---
+
 ## 2026-04-22 night (L-43 pin + V-10 policy block — +15 flips → 119 pass / 0 fail / 11 skip)
 
 **Scoreboard: 119 pass / 0 fail / 11 skip / 0 error (+15 from 104).** Clean board. Within 1 test of crossing 120.

@@ -114,6 +114,12 @@ const (
 	// JCS parity vectors (RFC 8785 Appendix-style) for SV-ENC-05.
 	JCSParityGeneratedDir = "test-vectors/jcs-parity/generated"
 
+	// L-44 — SV-ENC-06 JWT clock-skew fixtures (T_REF = 2026-04-22T12:00:00Z).
+	JWTClockSkewIatInWindow = "test-vectors/jwt-clock-skew/iat-in-window.jwt"
+	JWTClockSkewIatPast     = "test-vectors/jwt-clock-skew/iat-past.jwt"
+	JWTClockSkewIatFuture   = "test-vectors/jwt-clock-skew/iat-future.jwt"
+	JWTClockSkewExpExpired  = "test-vectors/jwt-clock-skew/exp-expired.jwt"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 

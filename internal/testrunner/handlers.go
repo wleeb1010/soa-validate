@@ -147,6 +147,15 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
 
+	// M3 Week 4 (V-11) — §7 AGENTS.md grammar + imports (SV-AGENTS-06 is M5).
+	"SV-AGENTS-01": handleSVAGENTS01,
+	"SV-AGENTS-02": handleSVAGENTS02,
+	"SV-AGENTS-03": handleSVAGENTS03,
+	"SV-AGENTS-04": handleSVAGENTS04,
+	"SV-AGENTS-05": handleSVAGENTS05,
+	"SV-AGENTS-07": handleSVAGENTS07,
+	"SV-AGENTS-08": handleSVAGENTS08,
+
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
 	"SV-ENC-02":   handleSVENC02,
