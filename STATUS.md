@@ -4,6 +4,32 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (Findings S + T + W land — +3 flips; SV-STR-07 near-miss)
+
+**Scoreboard: 65 pass / 1 fail / 14 skip / 0 error (+3 from 62).**
+
+Impl-session shipped three findings in quick succession; one validator-side conversion and the remaining stream-span gap is surgical.
+
+| Test | Change | Mechanism |
+|---|---|---|
+| SV-STR-06 | fail → **pass** | Finding W: OTel emitter wired to decision path. `soa.turn` span present with required attrs (`soa.session.id`, `soa.turn.id`, `soa.agent.name`) |
+| SV-STR-07 | fail → **fail (surgical)** | Finding W partial — `service.name` + `session_id` in `resource_attributes` but `service.version` missing. Impl should set `service.version` on the OTel resource (e.g., from runner_version) |
+| SV-MEM-03 | skip → **pass** | Finding S: startup probe. Validator spawns impl with `SOA_RUNNER_MEMORY_MCP_ENDPOINT` pointing at a closed loopback port; polls `/ready` until 503 `reason=memory-mcp-unavailable` (impl exhausts 3 attempts × 500ms backoff, persists 503) |
+| SV-MEM-04 | skip → **pass** | Finding T two-tier: mock with `TimeoutAfterNCalls=1` (startup succeeds as call #1, session-bootstrap search times out as call #2). Validator asserts `/logs/system/recent?session_id=<sid>&category=MemoryDegraded` returns exactly 1 `{level=warn, code=memory-timeout}` record AND session bootstrap 201 (continue with stale slice) |
+
+### Validator-side work this pass
+
+- `handleSVMEM03` — subprocess harness + loopback-port reservation trick to guarantee ECONNREFUSED against the mcp_endpoint. Polls `/ready` for up to 15s to cover the 3-retry × 500ms + 2s per-attempt timeout window.
+- `handleSVMEM04` — reuses `memProbeEnv` with `TimeoutAfterNCalls=1`; new `getSystemLogRecentRaw` helper against §14.5.4. Schema-validates response then filters records by `category + level + code` triplet.
+- All six skip diagnostics for other SV-MEM handlers stay sharpened; next flips land when Findings U + V ship.
+
+### Remaining surfaces
+
+- **SV-STR-07**: one-line impl fix — set `service.version` on the OTel resource. Clean fail, not a skip — impl ships the fix, next poll flips.
+- 14 remaining skips: SV-MEM-05/06/07/08, SV-BUD-02/04/05/07, SV-SESS-01/03/06 platform-variants, SV-STR-04/10/11/16 — all tracked against impl asks U/V/Q/R or M4 retags.
+
+---
+
 ## 2026-04-21 (V-9e — 0 flips, resume/crash state survey)
 
 **Scoreboard: 62 pass / 2 fail / 16 skip / 0 error (unchanged).** V-9e expected +3/+4, delivered +0 — the target tests resolve differently than trajectory assumed:

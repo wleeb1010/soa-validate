@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -204,21 +205,162 @@ func sliceEqual(a, b []string) bool {
 	return true
 }
 
-// SV-MEM-03: startup fail-closed when Memory MCP unreachable. Spec §8.3
-// requires MemoryUnavailableStartup at boot; impl today does NOT probe
-// at startup (opts.memoryClient constructed lazily, no readiness check).
-// Skip-pending with precise impl-ask.
+// SV-MEM-03: startup fail-closed when Memory MCP unreachable. Finding S
+// shipped: impl runs a startup probe (3 retries, 500ms backoff) before
+// binding; on persistent failure /ready stays 503 with reason=
+// memory-mcp-unavailable. Probe: spawn impl with mcp_endpoint pointing
+// at an unused loopback port, assert /ready → 503 + reason matches.
 func handleSVMEM03(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-03", "§8.3 startup fail-closed — impl MUST refuse /ready (or exit non-zero) when SOA_RUNNER_MEMORY_MCP_ENDPOINT is set but the endpoint is unreachable at boot, emitting MemoryUnavailableStartup. **Impl-side ask**: add a startup-time probe to MemoryMcpClient (e.g., a 1s HEAD or search-with-empty-query against the endpoint) that surfaces MemoryUnavailableStartup before /ready flips to 200. Current impl constructs the client lazily in bin/start-runner.ts:391 with no readiness check.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §8.3 MemoryUnavailableStartup readiness gate"}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-MEM-03: SOA_IMPL_BIN unset; subprocess required to spawn impl with bad mcp_endpoint"})
+		return out
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	// Pick a loopback port that's definitely unused — bind + immediately
+	// release. The OS will let this port stay closed during the probe
+	// window so startup probe attempts hit ECONNREFUSED deterministically.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: "reserve closed loopback port: " + err.Error()})
+		return out
+	}
+	unusedPort := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	env := map[string]string{
+		"RUNNER_PORT":                    strconv.Itoa(port),
+		"RUNNER_HOST":                    "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":           filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":            filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":           filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":               "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":    "svmem03-test-bearer",
+		"SOA_RUNNER_MEMORY_MCP_ENDPOINT": fmt.Sprintf("http://127.0.0.1:%d", unusedPort),
+	}
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		// Startup probe: 3 attempts × 500ms backoff + 2s per-attempt
+		// timeout ≈ 7.5s. We don't need the session surface; /ready is
+		// served before the probe resolves on Finding S's pre-bind path.
+		// Poll /ready for up to 15s waiting for the 503 memory-mcp-unavailable.
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet,
+				fmt.Sprintf("http://127.0.0.1:%d/ready", port), nil)
+			resp, err := (&http.Client{Timeout: 1 * time.Second}).Do(req)
+			if err != nil {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusServiceUnavailable {
+				var parsed struct {
+					Reason string `json:"reason"`
+				}
+				_ = json.Unmarshal(body, &parsed)
+				if parsed.Reason == "memory-mcp-unavailable" {
+					return fmt.Sprintf("SV-MEM-03: §8.3 startup probe fail-closed — /ready=503 reason=memory-mcp-unavailable after exhausting retries against unreachable %s", env["SOA_RUNNER_MEMORY_MCP_ENDPOINT"]), true
+				}
+				// Different 503 reason (crl-stale, boot) — impl may still be in early startup phase, keep polling.
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		return fmt.Sprintf("/ready never flipped to 503 memory-mcp-unavailable within 15s; §8.3 + Finding S require persistent 503 when startup probe exhausts retries against unreachable endpoint %s", env["SOA_RUNNER_MEMORY_MCP_ENDPOINT"]), false
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-03: " + msg})
+	}
+	return out
 }
 
-// SV-MEM-04: mid-loop timeout → MemoryDegraded. Impl has
-// MemoryDegradationTracker with threshold=3 but sessions-route emits
-// SessionEnd{stop_reason:MemoryDegraded} on EVERY timeout (line 302),
-// not only after the 3-consecutive gate fires. That's an impl contract
-// divergence from §8.3's three-consecutive-failure rule.
+// SV-MEM-04: non-terminal MemoryDegraded on single mid-loop timeout.
+// Finding T shipped the two-tier behavior — per-timeout writes a warn
+// record to /logs/system/recent (category=MemoryDegraded, code=
+// memory-timeout); only 3-consecutive triggers SessionEnd terminal.
+// Probe: mock with TIMEOUT_AFTER_N_CALLS=1 (startup probe succeeds as
+// call #1; session-bootstrap search times out as call #2), assert one
+// warn record + session bootstrap still returns 201.
 func handleSVMEM04(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-04", "§8.3 single mid-loop timeout → MemoryDegraded observability event, session continues with stale slice. Impl emits SessionEnd{stop_reason:MemoryDegraded} on EVERY timeout (sessions-route.ts:302), bypassing the MemoryDegradationTracker's 3-consecutive gate. **Impl-side ask**: gate SessionEnd emission on `memoryDegradation.isDegraded()` (i.e., only after 3 consecutive failures); single timeout should emit a non-terminal MemoryDegraded observability signal instead. Spec L-34 clarified MemoryDegraded is a SessionEnd.stop_reason; the 'continue with stale slice' in SV-MEM-04 implies a separate lower-severity signal that L-34 didn't enumerate — **spec-side check**: does spec want a non-terminal MemoryDegraded stream event, or is SV-MEM-04 asserting the 3-consecutive rule threshold behavior?")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §8.3 non-terminal MemoryDegraded observable via §14.5.4 System Event Log"}}
+	bin, args, env, _, port, cleanup, skip := memProbeEnv(h, memmock.Options{TimeoutAfterNCalls: 1})
+	defer cleanup()
+	if skip != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SV-MEM-04: " + skip})
+		return out
+	}
+	bearer := env["SOA_RUNNER_BOOTSTRAP_BEARER"]
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 8 * time.Second})
+		sid, sbearer, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap: status=%d err=%v — §8.3 requires 201 even on mid-session timeout (non-terminal, continue with stale slice)", status, err), false
+		}
+		// Allow impl to flush the System Event Log record.
+		time.Sleep(300 * time.Millisecond)
+		body, code, err := getSystemLogRecentRaw(probeCtx, client, sid, sbearer, "MemoryDegraded")
+		if err != nil {
+			return "GET /logs/system/recent: " + err.Error(), false
+		}
+		if code == http.StatusNotFound {
+			return "GET /logs/system/recent → 404; impl has not shipped §14.5.4 yet (L-38 + Finding T)", false
+		}
+		if code != http.StatusOK {
+			return fmt.Sprintf("/logs/system/recent status=%d; want 200", code), false
+		}
+		if err := agentcard.ValidateJSON(h.Spec.Path(specvec.SystemLogRecentResponseSchema), body); err != nil {
+			return "§14.5.4 response fails schema: " + err.Error(), false
+		}
+		var parsed struct {
+			Records []struct {
+				Category string `json:"category"`
+				Level    string `json:"level"`
+				Code     string `json:"code"`
+			} `json:"records"`
+		}
+		_ = json.Unmarshal(body, &parsed)
+		warnCount := 0
+		for _, r := range parsed.Records {
+			if r.Category == "MemoryDegraded" && r.Level == "warn" && r.Code == "memory-timeout" {
+				warnCount++
+			}
+		}
+		if warnCount != 1 {
+			return fmt.Sprintf("expected exactly 1 {category=MemoryDegraded, level=warn, code=memory-timeout} record; got %d (total records=%d)", warnCount, len(parsed.Records)), false
+		}
+		return fmt.Sprintf("SV-MEM-04: §8.3 non-terminal MemoryDegraded — session bootstrap returned 201 (continue with stale slice) AND /logs/system/recent has exactly 1 warn record {category=MemoryDegraded, code=memory-timeout} per L-38 §14.5.4 + Finding T two-tier behavior"), true
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-04: " + msg})
+	}
+	return out
+}
+
+// getSystemLogRecentRaw GETs §14.5.4 /logs/system/recent with
+// session_id + optional category filter.
+func getSystemLogRecentRaw(ctx context.Context, c *runner.Client, sessionID, bearer, category string) ([]byte, int, error) {
+	url := fmt.Sprintf("%s/logs/system/recent?session_id=%s&limit=50", c.BaseURL(), sessionID)
+	if category != "" {
+		url += "&category=" + category
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return raw, resp.StatusCode, nil
 }
 
 // SV-MEM-05: consolidate_memories trigger — impl has no time-based or
