@@ -370,11 +370,82 @@ func handleSVMEM05(ctx context.Context, h HandlerCtx) []Evidence {
 	return memoryPending(h, "SV-MEM-05", "§8.2 consolidate_memories invoked within 24h or after 100 new notes. Impl's MemoryMcpClient has the consolidateMemories method plumbed but nothing calls it — no scheduler, no per-turn counter. M3 scope stops before LLM dispatch + turn-counter wiring. **Impl-side ask**: add a consolidation trigger — simplest: background timer (24h default, env-overridable for test) that invokes consolidateMemories across all active sessions; second: note-count counter per session that fires at >=100 writes.")
 }
 
-// SV-MEM-06: sharing_policy enforcement — cross-session search honors
-// sharing_scope. Impl's sessions-route calls searchMemories with
-// sharing_scope:"session" hard-coded; no cross-session path exercised.
+// SV-MEM-06: card-driven sharing_scope propagation. Finding V + L-39
+// together make this probe-able: impl reads card.memory.default_sharing_scope
+// (Finding V), and L-39 ships test-vectors/conformance-card-memory-project/
+// with sharing_policy="project". Validator boots impl subprocess with
+// that card + memmock wired, mints one session, then asserts the
+// memmock captured a search_memories call carrying sharing_scope="project".
+// (Card schema field is `memory.sharing_policy` per §7.318; the same
+// value flows to the request as `sharing_scope` per §8.1.541.)
 func handleSVMEM06(ctx context.Context, h HandlerCtx) []Evidence {
-	return memoryPending(h, "SV-MEM-06", "§8 sharing_policy enforcement — search_memories sharing_scope parameter honored server-side. Impl bootstrap calls searchMemories with sharing_scope:\"session\" hard-coded (sessions-route.ts:277); no cross-session search path exists. Mock honors sharing_scope but impl never requests anything but session-scope. **Impl-side ask**: surface a per-request sharing_scope (e.g., from Agent Card memory.default_sharing_scope OR via a new session-bootstrap field), so validator can mint two sessions with conflicting scopes and assert the mock's enforcement reaches /memory/state.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §8 sharing_policy → search_memories sharing_scope propagation (L-39 card fixture)"}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-MEM-06: SOA_IMPL_BIN unset; subprocess required to swap RUNNER_CARD_FIXTURE"})
+		return out
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	mock, err := memmock.New(memmock.Options{
+		CorpusPath:         filepath.Join(specRoot, specvec.MemoryMCPMockDir, "corpus-seed.json"),
+		TimeoutAfterNCalls: -1,
+	})
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "memmock.New: " + err.Error()})
+		return out
+	}
+	if err := mock.Start(); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "memmock.Start: " + err.Error()})
+		return out
+	}
+	defer mock.Stop()
+
+	port := implTestPort()
+	bearer := "svmem06-test-bearer"
+	projectCard := filepath.Join(specRoot, specvec.ConformanceCardMemoryProject)
+	env := map[string]string{
+		"RUNNER_PORT":                    strconv.Itoa(port),
+		"RUNNER_HOST":                    "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":           filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":            projectCard,
+		"RUNNER_TOOLS_FIXTURE":           filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":               "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":    bearer,
+		"SOA_RUNNER_MEMORY_MCP_ENDPOINT": mock.URL(),
+	}
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 5 * time.Second})
+		_, _, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err), false
+		}
+		// Allow the bootstrap-time searchMemories to reach the mock.
+		time.Sleep(250 * time.Millisecond)
+		calls := mock.SearchCalls()
+		if len(calls) == 0 {
+			return fmt.Sprintf("memmock saw no search_memories calls after bootstrap; impl may not have wired card.memory.enabled=true (calls logged: %v)", mock.CallLog()), false
+		}
+		projectScopeCount := 0
+		seenScopes := map[string]int{}
+		for _, c := range calls {
+			seenScopes[c.SharingScope]++
+			if c.SharingScope == "project" {
+				projectScopeCount++
+			}
+		}
+		if projectScopeCount == 0 {
+			return fmt.Sprintf("search_memories requests present but none carry sharing_scope=\"project\"; observed scopes=%v. Impl may still be hard-coding \"session\" despite card.memory.sharing_policy=\"project\" (Finding V wiring gap).", seenScopes), false
+		}
+		return fmt.Sprintf("SV-MEM-06: card.memory.sharing_policy=\"project\" propagated to search_memories request — memmock captured %d call(s) with sharing_scope=\"project\" (scope histogram=%v) per §7.318 / §8.1.541 + Finding V", projectScopeCount, seenScopes), true
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-MEM-06: " + msg})
+	}
+	return out
 }
 
 // SV-MEM-07: §8.1 line 566 idempotent delete_memory_note — same note_id

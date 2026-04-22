@@ -4,6 +4,28 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (L-39 adopted; SV-BUD-02 flips; SV-MEM-06 surfaces field-name mismatch)
+
+**Pin-bumped 39e376e → a180915.** L-39 ships two conformance card fixture variants I asked for after Findings O + V landed their card-driven paths. Manifest `23f4228b…7337` verified byte-for-byte. New specvec constants `ConformanceCardLowBudget` + `ConformanceCardMemoryProject`.
+
+**Scoreboard: 68 pass / 1 fail / 11 skip / 0 error (+1 from 67).**
+
+### Flipped
+
+- **SV-BUD-02 → PASS.** Subprocess with `RUNNER_CARD_FIXTURE=<low-budget>` (maxTokensPerRun=1000). Validator drives ≤5 decisions against a memory-disabled impl; cumulative crosses the tripwire, impl emits `SessionEnd{stop_reason:BudgetExhausted}` per Finding O wiring. Observable via `/events/recent`.
+
+### Clean fail — one impl field-name mismatch surfaced
+
+- **SV-MEM-06 → fail (surgical).** Memmock gained a `SearchCalls()` capture surface; probe boots impl with the L-39 `conformance-card-memory-project` card + validator's memmock on an ephemeral port via `SOA_RUNNER_MEMORY_MCP_ENDPOINT`. Bootstrap-time search_memories lands on the mock — but `sharing_scope="session"`, not `"project"`.
+
+  **Root cause (impl field-name mismatch):** impl `start-runner.ts:606–608` reads `card.memory?.default_sharing_scope`; L-39 fixture + spec §7.318 use the canonical key `memory.sharing_policy`. Finding V wiring is correct in spirit but misses this spec-canonical field. **Impl-ask (follow-up to V):** change the card-field read from `card.memory.default_sharing_scope` to `card.memory.sharing_policy` (or accept both for back-compat). Per user naming guidance: card = `sharing_policy`, request-side parameter = `sharing_scope`, same value.
+
+### Remaining 11 skips
+
+Pre-budgeted + M4 retags (6): SV-STR-04, SV-STR-11, SV-STR-16, SV-BUD-03, SV-SESS-06 (POSIX-host), SV-MEM-08. Pending impl ships (5): SV-MEM-05 (U), SV-BUD-05/07 (Q/R), SV-STR-10 (CrashEvent + bearer/admin), SV-BUD-04 (synthetic cached tokens).
+
+---
+
 ## 2026-04-21 (SV-STR-07 + SV-MEM-07 + SV-REG-03 stabilize — 67 pass / 0 fail)
 
 **Scoreboard: 67 pass / 0 fail / 13 skip / 0 error (+2 from 65).**

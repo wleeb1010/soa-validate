@@ -46,16 +46,86 @@ func handleSVBUD01(ctx context.Context, h HandlerCtx) []Evidence {
 		return ""
 	}, "§13 projection algorithm: safety_factor=1.15, cold_start_baseline_active=true, cumulative=0 at session-start")
 }
-// SV-BUD-02: §13.2 pre-call halt. Finding O (e42db21) made maxTokensPerRun
-// card-driven per §7 line 375/379 — impl reads card.tokenBudget.maxTokensPerRun
-// (start-runner.ts:443). Conformance card pins 200000 with no low-budget
-// variant. **Spec-side ask**: ship a `test-vectors/conformance-card-low-budget/`
-// fixture with tokenBudget.maxTokensPerRun=500 (or similar) so validator can
-// RUNNER_CARD_FIXTURE at it and drive exhaustion in 1-2 decisions at
-// 512-token per-turn estimate. Without it the assertion is theoretically
-// provable but practically unreachable in a conformance run.
+// SV-BUD-02: §13.2 pre-call halt. L-39 shipped the low-budget fixture:
+// test-vectors/conformance-card-low-budget/agent-card.json pins
+// tokenBudget.maxTokensPerRun=1000. One decision at 512-token per-turn
+// estimate sets cumulative=512; the second decision's projection
+// (cumulative 512 + next-turn 1.15 × 512 ≈ 1101) > 1000 → impl
+// terminates the session with SessionEnd{stop_reason:BudgetExhausted}
+// per Finding O wiring. Probe observes via /events/recent.
 func handleSVBUD02(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-02", "§13.2 pre-call halt. Finding O shipped — impl now reads card.tokenBudget.maxTokensPerRun per §7. Conformance card pins 200000 (200k tokens) = ~391 decisions at 512/turn to exhaust — impractical at conformance-run scale. **Spec-side ask**: ship a `test-vectors/conformance-card-low-budget/` pinned fixture with tokenBudget.maxTokensPerRun=500 so validator can drive BudgetExhausted refusal in 2 decisions via RUNNER_CARD_FIXTURE. Impl's wouldExhaust() + terminateForBudgetExhausted() wiring at decisions-route.ts:389/763 is ready; only the fixture is missing.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §13.2 pre-call halt via low-budget card fixture (L-39)"}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-BUD-02: SOA_IMPL_BIN unset; subprocess required to swap RUNNER_CARD_FIXTURE"})
+		return out
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	lowBudgetCard := filepath.Join(specRoot, specvec.ConformanceCardLowBudget)
+	port := implTestPort()
+	bearer := "svbud02-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                 strconv.Itoa(port),
+		"RUNNER_HOST":                 "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":        filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":         lowBudgetCard,
+		"RUNNER_TOOLS_FIXTURE":        filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":            "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER": bearer,
+	}
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 5 * time.Second})
+		sid, sbearer, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap against low-budget fixture failed: status=%d err=%v", status, err), false
+		}
+		// Drive decisions until one returns the BudgetExhausted refusal OR
+		// /events/recent shows SessionEnd{BudgetExhausted}. Upper bound 5
+		// decisions so a misconfigured impl fails fast rather than looping.
+		var lastStatus int
+		var lastBody string
+		for i := 0; i < 5; i++ {
+			body := fmt.Sprintf(
+				`{"tool":"fs__read_file","session_id":%q,"args_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}`,
+				sid,
+			)
+			req, _ := http.NewRequestWithContext(probeCtx, http.MethodPost,
+				client.BaseURL()+"/permissions/decisions", bytes.NewReader([]byte(body)))
+			req.Header.Set("Authorization", "Bearer "+sbearer)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+			if err != nil {
+				return fmt.Sprintf("decision %d POST: %v", i+1, err), false
+			}
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastStatus, lastBody = resp.StatusCode, string(raw)
+			if resp.StatusCode == http.StatusForbidden && bytes.Contains(raw, []byte("BudgetExhausted")) {
+				// 403 BudgetExhausted may be the refusal shape; observable.
+				return fmt.Sprintf("SV-BUD-02: decision %d refused with 403 BudgetExhausted after crossing 1000-token budget per low-budget fixture; body=%.160q", i+1, lastBody), true
+			}
+			// Poll /events/recent for SessionEnd{BudgetExhausted}.
+			time.Sleep(120 * time.Millisecond)
+			events, _ := fetchRecentEvents(probeCtx, client, sid, sbearer)
+			for _, e := range events {
+				if e.Type == "SessionEnd" {
+					sr, _ := e.Payload["stop_reason"].(string)
+					if sr == "BudgetExhausted" {
+						return fmt.Sprintf("SV-BUD-02: SessionEnd{stop_reason:BudgetExhausted} emitted after %d decision(s) against low-budget fixture (maxTokensPerRun=1000); §13.2 pre-call halt + Finding O wiring confirmed", i+1), true
+					}
+				}
+			}
+		}
+		return fmt.Sprintf("5 decisions completed, no BudgetExhausted observed (last status=%d body=%.160q). §13.2 terminateForBudgetExhausted path may not be firing against card-driven max=1000", lastStatus, lastBody), false
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-BUD-02: " + msg})
+	}
+	return out
 }
 func handleSVBUD03(ctx context.Context, h HandlerCtx) []Evidence {
 	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on next ContentBlockDelta boundary. Requires real LLM dispatcher + ContentBlockDelta streaming (M4 scope); M3 impl stops before real dispatch. **M3 → M4 retag accepted (L-37)** — deferred to M4 streaming dispatcher landing.")

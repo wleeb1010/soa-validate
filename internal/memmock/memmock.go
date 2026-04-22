@@ -49,16 +49,25 @@ type Options struct {
 	ReturnErrorForTool string
 }
 
+// SearchCall captures one observed search_memories invocation for
+// assertions like SV-MEM-06 (sharing_scope propagation from the card).
+type SearchCall struct {
+	Query        string `json:"query"`
+	Limit        int    `json:"limit"`
+	SharingScope string `json:"sharing_scope"`
+}
+
 // MemMock is the mock server handle.
 type MemMock struct {
-	srv       *http.Server
-	listener  net.Listener
-	port      int
-	corpus    []CorpusNote
-	opts      Options
-	mu        sync.Mutex
-	callLog   []string // tool name per invocation
-	callCount int64
+	srv         *http.Server
+	listener    net.Listener
+	port        int
+	corpus      []CorpusNote
+	opts        Options
+	mu          sync.Mutex
+	callLog     []string // tool name per invocation
+	callCount   int64
+	searchCalls []SearchCall
 	// write_memory note-id counter for deterministic test output.
 	writeSeq int64
 	// L-38 delete_memory_note idempotency: note_id → {tombstone_id, deleted_at}.
@@ -130,6 +139,15 @@ func (m *MemMock) CallLog() []string {
 	return out
 }
 
+// SearchCalls returns a copy of every observed search_memories request.
+func (m *MemMock) SearchCalls() []SearchCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]SearchCall, len(m.searchCalls))
+	copy(out, m.searchCalls)
+	return out
+}
+
 // CallCount is the total number of successful (non-timeout, non-error) calls.
 func (m *MemMock) CallCount() int64 {
 	return atomic.LoadInt64(&m.callCount)
@@ -177,6 +195,13 @@ func (m *MemMock) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if req.Limit <= 0 {
 		req.Limit = 5
 	}
+	m.mu.Lock()
+	m.searchCalls = append(m.searchCalls, SearchCall{
+		Query:        req.Query,
+		Limit:        req.Limit,
+		SharingScope: req.SharingScope,
+	})
+	m.mu.Unlock()
 
 	type ranked struct {
 		n     CorpusNote

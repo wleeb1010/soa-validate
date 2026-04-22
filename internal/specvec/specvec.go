@@ -94,6 +94,10 @@ const (
 	// L-38 — §14.5.4 System Event Log observation surface.
 	SystemLogRecentResponseSchema = "schemas/system-log-recent-response.schema.json"
 
+	// L-39 — two conformance card fixture variants for SV-BUD-02 + SV-MEM-06.
+	ConformanceCardLowBudget      = "test-vectors/conformance-card-low-budget/agent-card.json"
+	ConformanceCardMemoryProject  = "test-vectors/conformance-card-memory-project/agent-card.json"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 
