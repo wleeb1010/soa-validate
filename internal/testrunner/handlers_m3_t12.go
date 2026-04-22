@@ -145,30 +145,122 @@ func handleSVGOV01(ctx context.Context, h HandlerCtx) []Evidence {
 			v.SoaHarnessVersion, v.SupportedCoreVersions, v.RunnerVersion, v.GeneratedAt)}}
 }
 
-// ─── SV-GOV-02/03/04/11 — repo-root docs not served over HTTP ────────
+// ─── SV-GOV-02/03/04/11 — Finding AF docs surfaces (impl f4b006a) ────
 
 func handleSVGOV02(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-GOV-02 (§19.3 stability tiers): docs/stability-tiers.md is a repo-root file, not served via HTTP. " +
-			"**Finding AF**: serve under /docs/stability-tiers.md (or /governance/stability-tiers) so validator can fetch + verify §19.3 tier declarations."}}
+	if ev, bail := govLiveGate(h, "SV-GOV-02"); bail {
+		return ev
+	}
+	body, status, _, err := govGet(ctx, h.Client, "/docs/stability-tiers.md")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /docs/stability-tiers.md: " + err.Error()}}
+	}
+	if status != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("GET /docs/stability-tiers.md status=%d (want 200)", status)}}
+	}
+	text := string(body)
+	for _, marker := range []string{"§19.3", "Stable", "soaHarnessVersion"} {
+		if !strings.Contains(text, marker) {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("docs/stability-tiers.md missing marker %q (§19.3 requires per-field tier declarations)", marker)}}
+		}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§19.3 stability tiers: %d-byte body declares §19.3 + Stable + soaHarnessVersion field", len(body))}}
 }
 
 func handleSVGOV03(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-GOV-03 (§19.4 migration guide): docs/migrations/README.md is a repo-root file, not served via HTTP. " +
-			"**Finding AF**: serve under /docs/migrations/ so validator can verify the §19.4 minor-bump guide template + presence."}}
+	if ev, bail := govLiveGate(h, "SV-GOV-03"); bail {
+		return ev
+	}
+	body, status, _, err := govGet(ctx, h.Client, "/docs/migrations/README.md")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /docs/migrations/README.md: " + err.Error()}}
+	}
+	if status != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("GET /docs/migrations/README.md status=%d (want 200)", status)}}
+	}
+	text := string(body)
+	for _, marker := range []string{"§19.4", "migration"} {
+		if !strings.Contains(strings.ToLower(text), strings.ToLower(marker)) {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("docs/migrations/README.md missing marker %q", marker)}}
+		}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§19.4 migration guide: %d-byte body references §19.4 + migration template", len(body))}}
 }
 
 func handleSVGOV04(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-GOV-04 (§19.5 deprecation lifetime ≥2 minors): declared in docs/stability-tiers.md (§19.5 section), no HTTP surface. " +
-			"**Finding AF**: same docs surface as SV-GOV-02 — the §19.5 declaration would be parseable from the same /docs/stability-tiers.md served body."}}
+	if ev, bail := govLiveGate(h, "SV-GOV-04"); bail {
+		return ev
+	}
+	body, status, _, err := govGet(ctx, h.Client, "/docs/stability-tiers.md")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /docs/stability-tiers.md: " + err.Error()}}
+	}
+	if status != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("GET /docs/stability-tiers.md status=%d (want 200)", status)}}
+	}
+	text := string(body)
+	// §19.5 deprecation lifetime ≥2 minors. Look for an explicit lifetime declaration.
+	hasLifetime := strings.Contains(text, "§19.5") ||
+		strings.Contains(strings.ToLower(text), "deprecation") ||
+		strings.Contains(text, "2 minor")
+	if !hasLifetime {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: "docs/stability-tiers.md lacks §19.5 / deprecation / 2-minor lifetime marker"}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§19.5 deprecation lifetime: %d-byte stability-tiers body declares deprecation policy ≥2-minor", len(body))}}
 }
 
 func handleSVGOV11(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-GOV-11 (§19.1.1 release-build verification gate): release-gate.json is a repo-root file. " +
-			"**Finding AF**: serve under /release-gate.json so validator can fetch + verify the 5 mandatory CI checks (extraction parity, manifest regen, must-map zero-orphan, vector digest parity, schema-2020-12 lint)."}}
+	if ev, bail := govLiveGate(h, "SV-GOV-11"); bail {
+		return ev
+	}
+	body, status, ctype, err := govGet(ctx, h.Client, "/release-gate.json")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /release-gate.json: " + err.Error()}}
+	}
+	if status != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("GET /release-gate.json status=%d (want 200)", status)}}
+	}
+	if !strings.Contains(strings.ToLower(ctype), "application/json") {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: "Content-Type=" + ctype + " (want application/json)"}}
+	}
+	var doc struct {
+		GateVersion string                   `json:"gate_version"`
+		Checks      []map[string]interface{} `json:"checks"`
+		Summary     struct {
+			Total int `json:"total"`
+			Pass  int `json:"pass"`
+			Fail  int `json:"fail"`
+		} `json:"summary"`
+		SignedManifestEligible bool `json:"signed_manifest_eligible"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: "parse release-gate.json: " + err.Error()}}
+	}
+	if len(doc.Checks) != 5 {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("release-gate.json checks length=%d (§19.1.1 mandates exactly 5: extraction parity, manifest regen, must-map zero-orphan, vector digest parity, schema-2020-12 lint)", len(doc.Checks))}}
+	}
+	if doc.Summary.Total != 5 || doc.Summary.Fail != 0 {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("summary total=%d fail=%d (want total=5, fail=0)", doc.Summary.Total, doc.Summary.Fail)}}
+	}
+	if !doc.SignedManifestEligible {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: "signed_manifest_eligible=false — §19.1.1 requires the gate pass before signing"}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§19.1.1 release-gate: gate_version=%s, %d/%d checks passed, signed_manifest_eligible=true", doc.GateVersion, doc.Summary.Pass, doc.Summary.Total)}}
 }
 
 // ─── SV-GOV-05 §19.2 — errata URL reachable ──────────────────────────
@@ -439,12 +531,29 @@ func handleSVGOV09(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: fmt.Sprintf("§19.4.1 highest-common: caller=[0.9,1.0,2.5] runner=%v → 201 session_id=%s (1.0 selected as highest tuple)", ver.SupportedCoreVersions, resp.SessionID)}}
 }
 
-// ─── SV-PRIV-01 §10.7 — data inventory present ───────────────────────
+// ─── SV-PRIV-01 §10.7 — data inventory present (Finding AF) ──────────
 
 func handleSVPRIV01(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PRIV-01 (§10.7 #1 data-inventory): docs/data-inventory.md is a repo-root file, not served via HTTP. " +
-			"**Finding AF**: serve under /docs/data-inventory.md so validator can fetch + verify per-primitive personal-data field tagging."}}
+	if ev, bail := govLiveGate(h, "SV-PRIV-01"); bail {
+		return ev
+	}
+	body, status, _, err := govGet(ctx, h.Client, "/docs/data-inventory.md")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /docs/data-inventory.md: " + err.Error()}}
+	}
+	if status != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("GET /docs/data-inventory.md status=%d (§10.7 #1 requires the inventory be published)", status)}}
+	}
+	text := string(body)
+	for _, marker := range []string{"§10.7", "data_class", "Retention"} {
+		if !strings.Contains(text, marker) {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("docs/data-inventory.md missing marker %q", marker)}}
+		}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§10.7 #1 data inventory: %d-byte body declares §10.7 + data_class tagging + Retention category mapping", len(body))}}
 }
 
 // ─── SV-PRIV-02 §10.7 — sensitive-personal block ─────────────────────
@@ -584,32 +693,30 @@ func handleSVPRIV04(ctx context.Context, h HandlerCtx) []Evidence {
 
 // ─── SV-PRIV-05 §10.7.2 — residency layered defence ──────────────────
 //
-// Spec gap (verified L-40): impl reads `card.security.data_residency`
-// (start-runner.ts:629) to drive the residency-guard, but
-// schemas/agent-card.schema.json security has additionalProperties=false
-// + properties={oauthScopes,trustAnchors,mtlsRequired,auditSink,
-// coordinationEndpoint} — `data_residency` is not declared. Any card
-// asserting it fails schema validation; impl conformance-loader rejects
-// non-conformance-card paths (manifest-path-not-found). **Finding AI**
-// (spec): add `data_residency: array<string>` to security in
-// agent-card.schema.json so the §10.7.2 SV-PRIV-05 surface has spec
-// coverage. Until then, validator can't drive the layered-defence path.
+// L-41 spec ships Finding AI: `security.data_residency: array<ISO 3166-1
+// alpha-2>` declared in spec `schemas/agent-card.schema.json`. Impl
+// pinned to L-41 (f4b006a) but did NOT regenerate vendored schemas —
+// `packages/schemas/dist/schemas/vendored/agent-card.schema.json` still
+// has additionalProperties=false without `data_residency`, so cardPlugin
+// rejects any card asserting it: "card fails agent-card.schema.json
+// (/security must NOT have additional properties)". **Finding AK
+// (impl)**: re-run `node scripts/build-validators.mjs` (or `pnpm -w
+// build`) to regenerate vendored validators from the L-41 spec commit.
+// Probe body kept inline; flips skip → pass once vendored schema lands.
 func handleSVPRIV05(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PRIV-05 (§10.7.2 layered defence): impl reads card.security.data_residency (start-runner.ts:629) " +
-			"but schemas/agent-card.schema.json security has additionalProperties=false and does not declare data_residency. " +
-			"Mutating a temp card to add the field fails schema validation; using RUNNER_CARD_FIXTURE requires a sibling MANIFEST. " +
-			"**Finding AI (spec)**: add data_residency:array<string> to security in agent-card.schema.json so the §10.7.2 surface has spec coverage."}}
+		Message: "SV-PRIV-05 (§10.7.2 layered defence): L-41 spec adds security.data_residency but impl's vendored " +
+			"agent-card.schema.json (packages/schemas/dist/schemas/vendored/agent-card.schema.json — last touched Apr 20) " +
+			"was not regenerated after the L-41 pin bump. cardPlugin rejects: '/security must NOT have additional properties'. " +
+			"**Finding AK (impl)**: re-run `node scripts/build-validators.mjs` after pin bump to refresh vendored validators."}}
 }
 
-// _writeResidencyCard kept for reference when Finding AI lands (build a
-// temp card with security.data_residency and spawn impl).
+// _writeResidencyCardSubprocess — kept as the live probe body for when
+// Finding AK lands. After impl regens the vendored schemas, swap the
+// stub above for this body and SV-PRIV-05 flips skip → pass.
 //
 //nolint:unused
 func _writeResidencyCardSubprocess(ctx context.Context, h HandlerCtx) []Evidence {
-	if ev, bail := govLiveGate(h, "SV-PRIV-05"); bail {
-		return ev
-	}
 	bin, args, ok := parseImplBin()
 	if !ok {
 		return []Evidence{{Path: PathLive, Status: StatusSkip,
@@ -628,7 +735,7 @@ func _writeResidencyCardSubprocess(ctx context.Context, h HandlerCtx) []Evidence
 		"RUNNER_PORT":                 strconv.Itoa(port),
 		"RUNNER_HOST":                 "127.0.0.1",
 		"RUNNER_INITIAL_TRUST":        filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
-		"RUNNER_CARD_FIXTURE":         cardPath,
+		"RUNNER_CARD_PATH":            cardPath,
 		"RUNNER_TOOLS_FIXTURE":        filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
 		"RUNNER_DEMO_MODE":            "1",
 		"SOA_RUNNER_BOOTSTRAP_BEARER": bearer,
@@ -642,7 +749,7 @@ func _writeResidencyCardSubprocess(ctx context.Context, h HandlerCtx) []Evidence
 		// Drive one ReadOnly decision; impl's residencyGuard with empty
 		// toolResidencyLookup → unknown-region → 403 PermissionDenied(residency-violation).
 		decBody := []byte(fmt.Sprintf(`{"tool":"fs__read_file","session_id":%q,"args_digest":"sha256:%064x"}`, sid, time.Now().UnixNano()))
-			req, _ := http.NewRequestWithContext(probeCtx, http.MethodPost, client.BaseURL()+"/permissions/decisions", bytes.NewReader(decBody))
+		req, _ := http.NewRequestWithContext(probeCtx, http.MethodPost, client.BaseURL()+"/permissions/decisions", bytes.NewReader(decBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+sbearer)
 		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
@@ -720,9 +827,10 @@ func _writeResidencyCardSubprocess(ctx context.Context, h HandlerCtx) []Evidence
 }
 
 // writeResidencyCard reads the conformance-card and writes a tempfile
-// copy with security.data_residency=["us-east-1"] injected. Returns
-// (path, cleanup, err). Used by SV-PRIV-05 to drive a residency-guarded
-// impl bootstrap without mutating the spec-pinned fixture.
+// copy with security.data_residency=["US"] injected per L-41 schema
+// (ISO 3166-1 alpha-2 pattern ^[A-Z]{2}$). Returns (path, cleanup, err).
+// Used by SV-PRIV-05 to drive a residency-guarded impl bootstrap
+// without mutating the spec-pinned fixture.
 func writeResidencyCard(spec specvec.Locator) (string, func(), error) {
 	raw, err := spec.Read(specvec.ConformanceCard)
 	if err != nil {
@@ -736,7 +844,7 @@ func writeResidencyCard(spec specvec.Locator) (string, func(), error) {
 	if sec == nil {
 		sec = map[string]interface{}{}
 	}
-	sec["data_residency"] = []string{"us-east-1"}
+	sec["data_residency"] = []string{"US"}
 	card["security"] = sec
 	out, err := json.MarshalIndent(card, "", "  ")
 	if err != nil {

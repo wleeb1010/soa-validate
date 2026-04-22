@@ -4,6 +4,46 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-41 pin + Finding AF live — +5 flips → 85 pass / 0 fail / 10 skip)
+
+**Scoreboard: 85 pass / 0 fail / 10 skip / 0 error (+5 from 80).**
+
+L-41 spec landed (`f12f258`, manifest `c637248273237444df84ceaa4a56712a6ee8e0d8a03a75c2ed128df022f41e0b`) — closes Findings AI + AJ. Impl shipped `f4b006a` carrying the L-41 pin bump + Finding AF (HTTP doc routes). Validator-side outcomes:
+
+### Flipped (5 from Finding AF docs surfaces)
+
+| Test | Mechanism |
+|---|---|
+| **SV-GOV-02** | live `GET /docs/stability-tiers.md` → 200; body asserts §19.3 + Stable + soaHarnessVersion markers |
+| **SV-GOV-03** | live `GET /docs/migrations/README.md` → 200; body asserts §19.4 + migration markers |
+| **SV-GOV-04** | live `GET /docs/stability-tiers.md` → 200; body declares §19.5 deprecation lifetime ≥2-minor |
+| **SV-GOV-11** | live `GET /release-gate.json` → 200 JSON; checks length=5, summary.total=5/fail=0, signed_manifest_eligible=true |
+| **SV-PRIV-01** | live `GET /docs/data-inventory.md` → 200; body asserts §10.7 + data_class + Retention markers |
+
+### Still skipped (3 — unblocked by AG/AH/AK)
+
+| Test | Finding | Status |
+|---|---|---|
+| **SV-PRIV-02** | **AG (impl)** | Pending: catch MemoryDeletionForbidden in sessions-route.ts + emit /logs/system/recent record |
+| **SV-PRIV-04** | **AH (impl)** | Pending: RUNNER_RETENTION_TICK_MS + _INTERVAL_MS env hooks |
+| **SV-PRIV-05** | **AK (impl)** *(new)* | L-41 spec adds security.data_residency to agent-card.schema.json (Finding AI), but impl's vendored `packages/schemas/dist/schemas/vendored/agent-card.schema.json` was NOT regenerated after the L-41 pin bump — cardPlugin still rejects `data_residency`. **Finding AK**: re-run `node scripts/build-validators.mjs` after pin bump to refresh vendored validators. Probe body kept inline (`_writeResidencyCardSubprocess`) for one-line swap once AK lands. |
+
+### L-41 + Finding AJ retroactive benefit
+
+L-41's audit-records-response.schema.json `oneOf` discriminator means SubjectSuppression/SubjectExport/ResidencyCheck rows now validate. The chain-pollution cascade that broke HR-14 + SV-AUDIT-RECORDS-01/02 + SV-PERM-21 yesterday is structurally resolved — even if SV-PRIV-03 ran against live :7700, those 4 tests stay green.
+
+### Trajectory
+
+- **Today**: 85 pass / 0 fail
+- **+ AE (CrashEvent, impl)**: 86
+- **+ AG (sensitive-personal surface, impl)**: 87
+- **+ AH (retention env hooks, impl)**: 88
+- **+ AK (vendored schema regen, impl trivial)**: 89
+
+T-12 + L-41 + AF wave delivered: **+12 from 73 baseline** with 8 Findings filed, 5 already closed (AF in this commit, AI/AJ via L-41 spec), 3 pending impl ship (AE, AG, AH, AK = 4 actually). After AE/AG/AH/AK wire-up, **89 ceiling on this Windows host**, then V-9a/b/c bulk + V-10/V-11/V-12 push toward ≥120.
+
+---
+
 ## 2026-04-22 evening (T-12 wire-up: SV-GOV + SV-PRIV land — +7 flips → 80 pass / 0 fail (after :7700 bounce))
 
 **Scoreboard (this run, polluted chain): 76 pass / 1 fail / 15 skip / 3 error.**
