@@ -147,6 +147,24 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
 
+	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
+	"SV-ENC-01":   handleSVENC01,
+	"SV-ENC-02":   handleSVENC02,
+	"SV-ENC-03":   handleSVENC03,
+	"SV-ENC-04":   handleSVENC04,
+	"SV-ENC-05":   handleSVENC05,
+	"SV-ENC-06":   handleSVENC06,
+	"SV-ENC-07":   handleSVENC07,
+	"SV-PRIN-01":  handleSVPRIN01,
+	"SV-PRIN-02":  handleSVPRIN02,
+	"SV-PRIN-03":  handleSVPRIN03,
+	"SV-PRIN-04":  handleSVPRIN04,
+	"SV-PRIN-05":  handleSVPRIN05,
+	"SV-STACK-01": handleSVSTACK01,
+	"SV-STACK-02": handleSVSTACK02,
+	"SV-OPS-01":   handleSVOPS01,
+	"SV-OPS-02":   handleSVOPS02,
+
 	// M3 Week 4 (V-9c) — SV-BOOT-02..06 (trust-init extensions).
 	"SV-BOOT-02": handleSVBOOT02,
 	"SV-BOOT-03": handleSVBOOT03,

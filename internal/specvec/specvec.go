@@ -105,6 +105,15 @@ const (
 	ProgramMDX5TJWS                    = "test-vectors/program-md/program.md.x5t.jws"
 	HandlerKeypairPublicJWK            = "test-vectors/handler-keypair/public.jwk.json"
 
+	// L-43 — SV-BOOT-03/05 fixtures for DNSSEC + secondary-channel split-brain.
+	DnssecBootstrapValid             = "test-vectors/dnssec-bootstrap/valid.json"
+	DnssecBootstrapEmpty             = "test-vectors/dnssec-bootstrap/empty.json"
+	DnssecBootstrapMissingADBit      = "test-vectors/dnssec-bootstrap/missing-ad-bit.json"
+	BootstrapSecondaryChannelTrust   = "test-vectors/bootstrap-secondary-channel/initial-trust.json"
+
+	// JCS parity vectors (RFC 8785 Appendix-style) for SV-ENC-05.
+	JCSParityGeneratedDir = "test-vectors/jcs-parity/generated"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 

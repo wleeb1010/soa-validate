@@ -4,6 +4,55 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-43 pin + V-10 policy block — +15 flips → 119 pass / 0 fail / 11 skip)
+
+**Scoreboard: 119 pass / 0 fail / 11 skip / 0 error (+15 from 104).** Clean board. Within 1 test of crossing 120.
+
+Pin: a9c264b → `82b5332`; manifest `8373c14a91b2750aaa13d561d5958898f08daf95959250bbf84c1760799b70ac` byte-verified. L-43 closes Findings AP + AQ + AR (spec-side: normative §5.3.3 + fixture trio for DNSSEC + rotation env hooks + split-brain secondary-channel). Must-map SV-BOOT-03/04/05 skips sharpened to reference the L-43 env names + fixture paths. Flips land when impl ships AP/AQ/AR impl-side.
+
+### V-10 policy block flipped (15 of 16)
+
+| Test | Section | Path | Mechanism |
+|---|---|---|---|
+| SV-ENC-01 | §1 | vector | Filesystem walk: zero BOM in scanned spec text files |
+| SV-ENC-02 | §1 | live | `/version generated_at` matches RFC 3339 with explicit TZ + ≥ms precision |
+| SV-ENC-03 | §1 | vector | Spec markdown contains ≥3 unique ISO-8601 duration tokens (P30D, PT5M, PTxH) |
+| **SV-ENC-04** | §1 | vector | `git show HEAD:*.json` — %d git-tracked .json files at HEAD, zero CRLF in canonical bytes (Windows `autocrlf=true` working-copy false positive dodged) |
+| SV-ENC-05 | §1 | vector | JCS parity: all generated cases round-trip byte-identically across floats/integers/nested/strings |
+| SV-ENC-07 | §1 | vector | Unsigned PDA canonical-decision not_after − not_before ≤ 15min ceiling |
+| SV-PRIN-01 | §4 | vector | Conformance card is single-agent (no `agents`/`sub_agents`/`multi_agent_waiver` declarations) |
+| SV-PRIN-02 | §4 | vector | §16 Cross-Interaction Matrix covers all 6 required failure-path markers (A2A-handoff-during-SI, BudgetExhausted, Compaction-during-streaming, Card-mid-session, OTel-exporter-failure, HandoffBusy) |
+| SV-PRIN-03 | §4 | vector | Must-map has ≥1 SV-* test per core primitive P1..P10 + P12..P14 (13 primitive sections mapped to §N coverage) |
+| SV-PRIN-04 | §4 | vector | Spec declares "file-system grounded" + DB-as-secondary-only rule with all 3 required markers |
+| SV-PRIN-05 | §4/§16 | vector | §16 defines SI×handoff + compaction×streaming compositions |
+| SV-STACK-01 | §5.1 | vector + live | Both card forms declare all 7 blocks (self_improvement, memory, permissions, compaction, tokenBudget, observability, security) |
+| SV-STACK-02 | §5.2 | live | 4 primitive endpoints (Agent Card, events-recent, budget-projection, health) all advertised + reachable |
+| SV-OPS-01 | §5.4 | live | `/health` returns 200 `{status:"alive", soaHarnessVersion:"1.0"}` within 5s, no extra fields |
+| SV-OPS-02 | §5.4 | live | `/ready` is 200 `{status:"ready"}` OR 503 with reason in closed §5.4 set (bootstrap-pending/bootstrap-missing/...) |
+
+### Routed (1 — new spec Finding)
+
+| Test | Finding | Ask |
+|---|---|---|
+| **SV-ENC-06** | **AS (spec)** | JWT iat/exp ±30s clock-skew — no pinned fixture for in/out-of-window JWTs. Ship `test-vectors/jwt-clock-skew/{iat-in-window.jwt, iat-past.jwt, iat-future.jwt, exp-expired.jwt}` + a reference-clock constant in README so validator can decode + compare against a controlled clock. |
+
+### Assertion calibrations
+
+- **SV-ENC-04 initial over-strict**: scanned raw filesystem bytes, flagged CRLF on Windows autocrlf=true checkouts even though git-stored form is LF. Switched to `git show HEAD:<path>` reads so canonical bytes drive the assertion (the manifest digest already verifies those bytes; this probe just audits the encoding).
+- **SV-ENC-07 fixture switch**: my original probe tried `permission-prompt-signed/canonical-decision.json` which is the PDA-pair surface (handler-kid + capability + control focus, no window). The window-bearing fixture is the unsigned `permission-prompt/canonical-decision.json`.
+- **SV-STACK-02 404/501 tolerance**: primitive endpoints count as "advertised" when they return any non-404/non-501 status (401/403 still means the code path is wired, just auth-gated).
+
+### Running trajectory refresh
+
+- **Today**: 119 pass / 0 fail / 11 skip
+- **+ AE (CrashEvent, impl)**: → 120 ← **crosses ≥120**
+- **+ AP/AQ/AR (boot env hooks, impl)**: → 123
+- **+ AS (JWT clock-skew fixture, spec)**: → 124
+- **+ V-11 SV-AGENTS** (7) + **V-12 testable HRs** (5) + **V-9e SV-SESS+STR-10** (3): → ~139
+- **+ V-9b SV-PERM-02..22** (21, closer): → ~160
+
+---
+
 ## 2026-04-22 night (AN + AO land — +2 flips → 104 pass / 0 fail / 10 skip)
 
 **Scoreboard: 104 pass / 0 fail / 10 skip / 0 error (+2 from 102).** Clean board.

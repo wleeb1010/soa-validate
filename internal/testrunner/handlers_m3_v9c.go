@@ -129,36 +129,31 @@ func indexOfFold(s, sub string) int {
 
 func handleSVBOOT03(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-BOOT-03 (§5.3 DNSSEC TXT bootstrap): validator can't resolve a DNSSEC-protected _soa-trust.<domain> " +
-			"TXT record without DNSSEC infrastructure. Impl has no dnssec-txt-channel fixture or mock resolver. " +
-			"**Finding AP (impl+spec)**: ship a test-only env hook SOA_BOOTSTRAP_DNSSEC_TXT=\"publisher_kid=<id>; spki_sha256=<64-hex>; issuer=<...>\" " +
-			"(loopback-guarded, production-refuse) that short-circuits the DNSSEC resolver and injects a value; plus a spec-pinned " +
-			"fixture covering valid/empty/missing-AD-bit cases. Validator probe: subprocess with each fixture value, assert bind vs " +
-			"HostHardeningInsufficient(bootstrap-missing)."}}
+		Message: "SV-BOOT-03 (§5.3.3 DNSSEC TXT bootstrap): L-43 ships the fixture trio " +
+			"test-vectors/dnssec-bootstrap/{valid,empty,missing-ad-bit}.json + normative SOA_BOOTSTRAP_DNSSEC_TXT env hook. " +
+			"Awaiting impl ship of the hook — Runner must short-circuit DNSSEC resolver when the env points at a fixture file, " +
+			"bind on valid.json, HostHardeningInsufficient(bootstrap-missing) on empty.json + missing-ad-bit.json."}}
 }
 
 // ─── SV-BOOT-04 §5.3.1 — Bootstrap key rotation + compromise ─────────
 
 func handleSVBOOT04(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-BOOT-04 (§5.3.1 bootstrap rotation + compromise): §5.3.1 requires a ≤24h poll + response to revoked " +
-			"publisher_kid with HostHardeningInsufficient(bootstrap-revoked) + SI halt + flagging MANIFEST JWS as SuspectDecision " +
-			"in the preceding 24h. Impl has no poll-interval env hook or revocation-injection fixture. " +
-			"**Finding AQ (impl)**: env hooks RUNNER_BOOTSTRAP_POLL_TICK_MS (production-guard loopback-only) + a revocation-inject " +
-			"surface (path/file that impl watches for a successor publisher_kid). Validator probe: subprocess with tick=200ms, " +
-			"write a revocation update after first poll, observe Card rejection + SI halt + SuspectDecision audit flag."}}
+		Message: "SV-BOOT-04 (§5.3.1 bootstrap rotation + compromise): L-43 ships normative RUNNER_BOOTSTRAP_POLL_TICK_MS + " +
+			"SOA_BOOTSTRAP_REVOCATION_FILE env vars (production-guard loopback-only, same shape as AC/AD/AH/AK). " +
+			"Awaiting impl ship — validator probe will subprocess with tick=200ms, write a revocation update to the watched file " +
+			"after first poll, observe Card rejection with HostHardeningInsufficient(bootstrap-revoked) + SI halt + " +
+			"SuspectDecision audit flags on MANIFEST JWS accepted in the preceding 24h."}}
 }
 
 // ─── SV-BOOT-05 §5.3.2 — Anchor disagreement / split-brain ───────────
 
 func handleSVBOOT05(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-BOOT-05 (§5.3.2 split-brain): multi-channel disagreement requires simultaneous SDK-pinned + operator-bundled " +
-			"(or DNSSEC) channels wired with divergent publisher_kid values, plus SOA_BOOTSTRAP_CHANNEL declaring which is " +
-			"authoritative. Impl has no multi-channel test harness. " +
-			"**Finding AR (impl)**: env hook SOA_BOOTSTRAP_SECONDARY_CHANNEL=<channel> + corresponding fixture path, so validator " +
-			"can wire two channels with divergent kids and observe HostHardeningInsufficient(bootstrap-split-brain) + SI halt " +
-			"per §5.3.2."}}
+		Message: "SV-BOOT-05 (§5.3.2 split-brain): L-43 ships normative SOA_BOOTSTRAP_SECONDARY_CHANNEL env + " +
+			"test-vectors/bootstrap-secondary-channel/initial-trust.json dissenting-kid fixture. Awaiting impl ship — " +
+			"validator probe will subprocess with primary channel + SOA_BOOTSTRAP_SECONDARY_CHANNEL pointing at the dissenting " +
+			"fixture, observe HostHardeningInsufficient(bootstrap-split-brain) + SI halt per §5.3.2."}}
 }
 
 // ─── SV-BOOT-06 §5.3 — initial-trust.json schema conformance ─────────
