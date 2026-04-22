@@ -4,6 +4,39 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (V-9a stream conversions — +6 SV-STR greens)
+
+**Scoreboard: 59 pass / 0 fail / 21 skip / 0 error.**
+
+Converted 6 SV-STR `streamPending` stubs to real probes against `/events/recent`; the other 6 stay skip with sharpened impl-dependency diagnostics (observability channels beyond the polling endpoint).
+
+| Test | Status | Assertion |
+|---|---|---|
+| SV-STR-01 | pass | every event has envelope + type ∈ 27-value §14.1 closed enum |
+| SV-STR-02 | pass | sequence strictly increasing per session |
+| SV-STR-03 | pass | event_id unique per session |
+| SV-STR-05 | pass | every event.type ∈ §14.2 category closed list (unified w/ §14.1 enum) |
+| SV-STR-09 | pass | per-type payload validates against stream-event-payloads.schema.json oneOf |
+| SV-STR-15 | pass | schema has top-level oneOf dispatch + every emitted event validates |
+
+Stayed skip with real diagnostics:
+
+| Test | Blocks on |
+|---|---|
+| SV-STR-04 | pre-budgeted M4 SSE scope (unchanged) |
+| SV-STR-06 | OTel exporter → test collector; orthogonal to `/events/recent` |
+| SV-STR-07 | impl-side OTel required-attr startup-refusal gate |
+| SV-STR-08 | 10k-span flood + ObservabilityBackpressure signal (not in 27-enum) |
+| SV-STR-10 | CrashEvent requires crash induction + resume read; composable with SV-SESS-06..10 harness |
+| SV-STR-11 | CompactionDeferred requires real LLM dispatcher + ContentBlockDelta stream (M4) |
+| SV-STR-16 | Gateway-scope trust_class determinism (M4 Gateway profile) |
+
+**Shared infra:** `driveDecisionAndFetchEvents` + `streamProbe` helpers so future stream assertions follow the same pattern (seed decision → poll → checker). `recentEvent` struct added `SessionID` field. `streamClosedEnum27` is validator-source (not reflection from spec) so spec drift surfaces as test failure. New schema path constants `StreamEventSchema` + `StreamEventPayloadsSchema` in `specvec`.
+
+**Next up:** V-9b SV-BUD conversions — Finding K's exhaustion chapter (needs impl-side budget-exhaustion trigger to land) should flip SV-BUD-02/03/04/05/07 = +5. Then V-9c SV-MEM mock orchestration = +8. Crash-recovery SV-SESS conversions = +3.
+
+---
+
 ## 2026-04-21 (SV-HOOK-08 real probe — Finding N flipped; full SV-HOOK series green)
 
 **Scoreboard: 53 pass / 0 fail / 27 skip / 0 error.** All 8 SV-HOOK tests now green.

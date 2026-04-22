@@ -83,6 +83,10 @@ const (
 	ToolsRegisteredResponseSchema  = "schemas/tools-registered-response.schema.json"
 	EventsRecentResponseSchema     = "schemas/events-recent-response.schema.json"
 
+	// L-35 — §14.1 closed 27-type enum schema + per-type payload dispatch.
+	StreamEventSchema         = "schemas/stream-event.schema.json"
+	StreamEventPayloadsSchema = "schemas/stream-event-payloads.schema.json"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 

@@ -617,10 +617,11 @@ func handleSVHOOK08(ctx context.Context, h HandlerCtx) []Evidence {
 
 // fetchRecentEvents pulls /events/recent?session_id=<sid> and decodes.
 type recentEvent struct {
-	EventID  string                 `json:"event_id"`
-	Sequence int                    `json:"sequence"`
-	Type     string                 `json:"type"`
-	Payload  map[string]interface{} `json:"payload"`
+	EventID   string                 `json:"event_id"`
+	Sequence  int                    `json:"sequence"`
+	Type      string                 `json:"type"`
+	SessionID string                 `json:"session_id"`
+	Payload   map[string]interface{} `json:"payload"`
 }
 
 func fetchRecentEvents(ctx context.Context, c *runner.Client, sessionID, bearer string) ([]recentEvent, error) {
