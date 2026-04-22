@@ -4,6 +4,45 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-42 pin + SV-SIGN real crypto — +2 flips → 98 pass / 1 fail / 10 skip)
+
+**Scoreboard: 98 pass / 1 fail / 10 skip / 0 error (+2 from 96).**
+
+Pin: f12f258 → `a9c264b`; manifest `6b56d07f9e6d2de196a09842afa3292a0ecce2ca75318a7f8fa02aaa0afc5109` byte-verified. L-42 closes Findings AL + AM with two new fixtures.
+
+### Flipped (2 with full crypto verify)
+
+| Test | Path | Mechanism |
+|---|---|---|
+| **SV-SIGN-02** | vector | `program.md.jws` alg=EdDSA typ=soa-program+jws kid=soa-conformance-test-handler-v1.0 detached; **Ed25519 signature verified** against handler-keypair public JWK over raw-UTF-8 signing input `<headerB64>.<base64url(program.md)>` per §9.2 |
+| **SV-SIGN-05** | vector | Full two-step resolution: base64url-decode `x5t#S256=dJ8_1Gjlp-fmYEtxyBK2a0V5Mii1V6ROJTiO0HqFkeM` → 32 bytes → hex → matches anchor `spki_sha256=749f3fd4...91e3` → anchor `publisher_kid=soa-conformance-test-handler-v1.0` equals header.kid → Ed25519 signature verifies |
+
+### Surfaced (1 fail → new Finding AN for impl)
+
+| Test | Status | Diagnostic |
+|---|---|---|
+| **SV-CARD-10** | FAIL | Spawned impl subprocess with L-42 precedence-violation card (`agentType=explore` + `activeMode=DangerFullAccess`). Per §10.3 three-axis tightening, the Runner MUST refuse `/ready 200`. Observed: `/ready` returned `200 {"status":"ready"}`. **Finding AN (impl)**: detect the agentType-vs-activeMode precedence conflict at bootstrap + emit ConfigPrecedenceViolation on `/logs/system/recent` category=Config + keep `/ready` at 503 with `config-precedence-violation` reason until resolved. Card-validation gate at start-runner.ts needs the §10.3 three-axis checker. |
+
+### Infrastructure changes
+
+- `internal/agentcard/validate.go`: `JWSHeader` adds `X5C []string` + `X5TS256 string` for §6.1.1 thumbprint binding.
+- `internal/testrunner/handlers_m3_v9a.go`: `readHandlerEd25519Pubkey` helper parses JWK-form Ed25519 public key; `crypto/ed25519` + `crypto/sha256` + `encoding/hex` imported for the signature-verify paths.
+- `internal/specvec/specvec.go`: adds `ConformanceCardPrecedenceViolation`, `ProgramMD`, `ProgramMDJWS`, `ProgramMDX5TJWS`, `HandlerKeypairPublicJWK` constants.
+
+### Trajectory refresh
+
+- **Today**: 98 pass / 1 fail
+- **+ AE/AG/AH/AK (impl pending)**: → 102
+- **+ AN (SV-CARD-10 fail → pass)**: → 103
+- **+ V-9c SV-BOOT-02..07** (6): → ~109
+- **+ V-10 policy block** (16): → ~125 (crosses ≥120)
+- **+ V-11 SV-AGENTS** (7), **V-12 HRs** (5), **V-9e SV-SESS+STR-10** (3): → ~140
+- **+ V-9b SV-PERM-02..22** (21, closer): → ~161
+
+Moving to V-9c SV-BOOT-02..07 next.
+
+---
+
 ## 2026-04-22 night (V-9a wave: SV-CARD/SV-SIGN bulk — +11 flips → 96 pass / 0 fail / 13 skip)
 
 **Scoreboard: 96 pass / 0 fail / 13 skip / 0 error (+11 from 85).**

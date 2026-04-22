@@ -98,6 +98,13 @@ const (
 	ConformanceCardLowBudget      = "test-vectors/conformance-card-low-budget/agent-card.json"
 	ConformanceCardMemoryProject  = "test-vectors/conformance-card-memory-project/agent-card.json"
 
+	// L-42 — SV-CARD-10 precedence-violation + SV-SIGN-02/05 program.md JWS fixtures.
+	ConformanceCardPrecedenceViolation = "test-vectors/conformance-card-precedence-violation/agent-card.json"
+	ProgramMD                          = "test-vectors/program-md/program.md"
+	ProgramMDJWS                       = "test-vectors/program-md/program.md.jws"
+	ProgramMDX5TJWS                    = "test-vectors/program-md/program.md.x5t.jws"
+	HandlerKeypairPublicJWK            = "test-vectors/handler-keypair/public.jwk.json"
+
 	// L-34 — memory-mcp-mock fixture dir (validator-driven mock consumer).
 	MemoryMCPMockDir = "test-vectors/memory-mcp-mock"
 
