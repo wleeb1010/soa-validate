@@ -4,6 +4,36 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (SV-STR-10 flips via AE SOA_CRASH_AFTER_MARKER — 152/0/6/0 M3 EXIT) 🎯🎯🎯
+
+**Scoreboard: 152 pass / 0 fail / 6 skip / 0 error. M3 exit target hit.**
+
+Impl shipped `8f431ae` — Option B: `SOA_CRASH_AFTER_MARKER` env hook. Impl emits the named marker, fsyncs, then `process.kill(pid, 'SIGKILL')` — deterministic timing via MarkerEmitter plumbing. Relaunch with same `RUNNER_SESSION_DIR` → boot-scan resume fires the L-47 CrashEvent emission. Admin:read query per §14.5.5 surfaces the event.
+
+### SV-STR-10 probe (validator-driven, Option B substrate)
+
+- **Phase 1** spawn: `SOA_CRASH_AFTER_MARKER=SOA_MARK_PENDING_WRITE_DONE` + isolated `RUNNER_SESSION_DIR` + `RUNNER_CRASH_TEST_MARKERS=1`. Driver goroutine (kicked off first `/health=200`) mints DFA+decide session → POSTs `fs__write_file` decision. Bracket-persist fires `SOA_MARK_PENDING_WRITE_DONE` → impl SIGKILLs self.
+- **Phase 2** relaunch: same `RUNNER_SESSION_DIR`, fresh port. Boot-scan discovers persisted open-bracket session → emits CrashEvent. `GET /events/recent?type=CrashEvent` under bootstrap bearer (admin:read per §14.5.5) returns the CrashEvent payload with `reason=resume-with-open-bracket` + session_id.
+
+### Wire-up bug banked (ReadinessProbe semantics)
+
+Spawn calls `ReadinessProbe` every 250ms with a 250ms context deadline. My first probe tried to run a 40s inline polling loop inside the ReadinessProbe — every invocation was cancelled after 250ms, so the loop never made progress and phase 1 timed out. Fix: single-shot ReadinessProbe that returns `nil` only when impl self-killed (port connection-refused), with driver goroutine kicked off exactly once on first `/health=200`. Useful pattern to document for future crash-harness probes.
+
+### 6 legit deferrals remaining (M3 exit composition)
+
+| Skip | Type | Note |
+|---|---|---|
+| SV-BUD-03 | M4 retag | LLM streaming |
+| SV-STR-04/11/16 | M4 retag | SSE / LLM dispatcher / Gateway trust_class |
+| SV-MEM-08 | pre-budgeted | cross-tenant Memory MCP (beyond mock scope) |
+| SV-SESS-06 | platform-gated | POSIX-only; Windows host runs SV-SESS-07 twin |
+
+### M3 complete on this Windows host
+
+**Final scoreboard: 152 / 0 / 6 / 0.** Compositionally: 47 M1 + M2 + 105 M3 tests green across 158 total in the must-map; 6 legitimate deferrals per the scope contract. Zero fails, zero errors. All findings routed during this cycle (AE/AF/AG/AH/AI/AJ/AK/AL/AM/AN/AO/AP/AQ/AR/AS/AT/AU/AV/AW/AX/AY/AZ/BA/BB/BC/BD/BE/BF/BG/BH/BI/BJ + ext variants) have either landed spec-side or impl-side and flipped the corresponding skip.
+
+---
+
 ## 2026-04-22 night (impl ships BB-ext-2 + BI-impl-ext — +3 → 151/0/7/0) 🎯
 
 **Scoreboard: 151 pass / 0 fail / 7 skip / 0 error (+3 from 148). M3 ceiling 152; AE SV-STR-10 full crash-harness is the only impl-side gap remaining.**

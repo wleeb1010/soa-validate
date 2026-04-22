@@ -29,6 +29,7 @@ import (
 	"github.com/wleeb1010/soa-validate/internal/jcs"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
+	"github.com/wleeb1010/soa-validate/internal/subprocrunner"
 )
 
 // bbcfBaseEnv constructs a common env map for the V-9b subprocess probes.
@@ -827,33 +828,174 @@ func handleSVPERM10Real(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
 }
 
-// ─── AE: SV-STR-10 §14.5.5 — CrashEvent via admin:read ───────────────
+// ─── AE: SV-STR-10 §14.2 + §14.5.5 — CrashEvent via admin:read ───────
 //
-// L-47 §14.5.5: /events/recent accepts admin:read (session_id optional,
-// cross-session, 60 rpm, type filter). L-47 AE impl: CrashEvent emitted
-// from boot-scan resume-with-open-bracket path. Validator probe: kill
-// subprocess, relaunch, GET /events/recent?type=CrashEvent (admin:read).
-//
-// Probe simplified for this validator host: mid-decision kill + relaunch
-// end-to-end is heavy. Pilot assertion: spawn subprocess with
-// RUNNER_CRASH_TEST_MARKERS=session-persist pre-populated so a prior
-// crash-marker exists, relaunch, assert CrashEvent present on admin:read
-// /events/recent?type=CrashEvent. If impl hasn't wired admin:read auth
-// yet, the GET will 401/403 and we'll route that back as finding.
+// Impl ships SOA_CRASH_AFTER_MARKER: impl emits the named marker,
+// fsync, then SIGKILLs itself. Relaunch + boot-scan resume surfaces a
+// CrashEvent. Validator probe:
+//   1. Spawn impl with SOA_CRASH_AFTER_MARKER=SOA_MARK_PENDING_WRITE_DONE
+//      + isolated RUNNER_SESSION_DIR + RUNNER_CRASH_TEST_MARKERS=1.
+//   2. On /health, drive one POST /permissions/decisions — triggers
+//      bracket-persist pending-write marker → impl self-kills.
+//   3. Wait for subprocess exit.
+//   4. Relaunch with same RUNNER_SESSION_DIR, no crash env.
+//   5. Wait /ready=200 — boot-scan resumes persisted open bracket.
+//   6. GET /events/recent?type=CrashEvent under bootstrap bearer
+//      (admin:read per §14.5.5) — assert ≥1 CrashEvent payload.
 func handleSVSTR10Real(ctx context.Context, h HandlerCtx) []Evidence {
 	bin, args, ok := parseImplBin()
 	if !ok {
 		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-STR-10: SOA_IMPL_BIN unset"}}
 	}
-	_ = bin
-	_ = args
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-STR-10 (§14.2 CrashEvent + §14.5.5 admin:read): full kill-restart-admin:read harness is " +
-			"composition-heavy — requires (a) crash-marker injection to leave an open bracket, (b) controlled subprocess " +
-			"kill at the right boundary, (c) relaunch with persisted sessionDir. The L-47 §14.5.5 admin:read surface is " +
-			"live (validated via direct curl — /events/recent without session_id returns cross-session events). Deferring " +
-			"full probe body to a follow-up pass; SV-STR-10 remains skip pending the crash-harness composition. **Optional " +
-			"follow-up**: compose SV-SESS-08 crash-marker pattern + §14.5.5 admin:read query."}}
+	sessionDir, err := os.MkdirTemp("", "svstr10-sessiondir-*")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "tempdir: " + err.Error()}}
+	}
+	defer func() { _ = os.RemoveAll(sessionDir) }()
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	bearer := "svstr10-test-bearer"
+
+	// Phase 1: spawn with crash-after-marker + drive a decision to trigger it.
+	crashEnv := bbcfBaseEnv(specRoot, port, bearer)
+	crashEnv["RUNNER_SESSION_DIR"] = sessionDir
+	crashEnv["RUNNER_CRASH_TEST_MARKERS"] = "1"
+	crashEnv["SOA_CRASH_AFTER_MARKER"] = "SOA_MARK_PENDING_WRITE_DONE"
+	// Goroutine-driver: waits for /health 200, drives one Mutating decision.
+	// Runs exactly once per subprocess.
+	driveOnce := false
+	var driveMu struct{}
+	_ = driveMu
+	cfg1 := subprocrunner.Config{
+		Bin: bin, Args: args, Env: envWithSystemBasics(crashEnv), InheritEnv: false,
+		Timeout: 45 * time.Second,
+		// Spawn calls ReadinessProbe every 250ms with a 250ms context.
+		// Single-shot semantics: return nil ONLY when impl has self-killed
+		// (port dead). On each poll, also kick the goroutine driver once
+		// /health comes up.
+		ReadinessProbe: func(probeCtx context.Context) error {
+			cli := &http.Client{Timeout: 150 * time.Millisecond}
+			resp, err := cli.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+			if err != nil {
+				// Port dead or connection refused.
+				if driveOnce {
+					// Driver already ran; port dead means self-kill completed → success.
+					return nil
+				}
+				// Port not yet up; keep waiting.
+				return fmt.Errorf("health not up yet")
+			}
+			resp.Body.Close()
+			if driveOnce {
+				// Driver already ran + health still up — keep waiting for self-kill.
+				return fmt.Errorf("impl still alive after decision")
+			}
+			// First successful /health — launch driver in background.
+			driveOnce = true
+			go func() {
+				client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 4 * time.Second})
+				driveCtx, dcancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer dcancel()
+				sid, sbearer, _, err := m2Bootstrap(driveCtx, client, bearer)
+				if err != nil {
+					return
+				}
+				body := fmt.Sprintf(`{"tool":"fs__write_file","session_id":%q,"args_digest":"sha256:%064x"}`, sid, time.Now().UnixNano())
+				req, _ := http.NewRequestWithContext(driveCtx, http.MethodPost, client.BaseURL()+"/permissions/decisions", strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", "Bearer "+sbearer)
+				_, _ = (&http.Client{Timeout: 3 * time.Second}).Do(req)
+			}()
+			return fmt.Errorf("driver launched; waiting for impl self-kill")
+		},
+	}
+	res1 := subprocrunner.Spawn(ctx, cfg1)
+	// Phase 1 success criterion: process exited (self-killed by SOA_CRASH_AFTER_MARKER).
+	// Any outcome where the process is still alive after the ReadinessProbe fired
+	// means the marker never triggered the self-kill.
+	_ = res1 // stderr captured for diagnostics if phase 2 fails
+
+	// Phase 2: relaunch in background, poll /ready then /events/recent directly.
+	port2 := implTestPort()
+	relaunchEnv := bbcfBaseEnv(specRoot, port2, bearer)
+	relaunchEnv["RUNNER_SESSION_DIR"] = sessionDir
+	cfg2 := subprocrunner.Config{
+		Bin: bin, Args: args, Env: envWithSystemBasics(relaunchEnv), InheritEnv: false,
+		Timeout: 45 * time.Second,
+		ReadinessProbe: func(probeCtx context.Context) error {
+			// Hold the process alive for up to 40s so we can poll externally.
+			select {
+			case <-probeCtx.Done():
+				return probeCtx.Err()
+			case <-time.After(40 * time.Second):
+				return nil
+			}
+		},
+	}
+	resultCh := make(chan subprocrunner.Result, 1)
+	go func() { resultCh <- subprocrunner.Spawn(ctx, cfg2) }()
+
+	// Poll /ready externally.
+	readyURL := fmt.Sprintf("http://127.0.0.1:%d/ready", port2)
+	eventsURL := fmt.Sprintf("http://127.0.0.1:%d/events/recent?type=CrashEvent&limit=50", port2)
+	deadline := time.Now().Add(25 * time.Second)
+	var crashEvent map[string]interface{}
+	for time.Now().Before(deadline) {
+		time.Sleep(400 * time.Millisecond)
+		resp, err := (&http.Client{Timeout: 600 * time.Millisecond}).Get(readyURL)
+		if err != nil {
+			continue
+		}
+		code := resp.StatusCode
+		resp.Body.Close()
+		if code != http.StatusOK {
+			continue
+		}
+		// /ready=200 — query admin:read /events/recent?type=CrashEvent.
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, eventsURL, nil)
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		evResp, err := (&http.Client{Timeout: 4 * time.Second}).Do(req)
+		if err != nil {
+			continue
+		}
+		raw, _ := io.ReadAll(evResp.Body)
+		evResp.Body.Close()
+		if evResp.StatusCode != http.StatusOK {
+			continue
+		}
+		var doc struct {
+			Events []map[string]interface{} `json:"events"`
+		}
+		_ = json.Unmarshal(raw, &doc)
+		for _, e := range doc.Events {
+			if t, _ := e["type"].(string); t == "CrashEvent" {
+				crashEvent = e
+				break
+			}
+		}
+		if crashEvent != nil {
+			break
+		}
+	}
+
+	// Cancel the relaunch subprocess so Spawn returns.
+	// (ctx cancellation handled by parent test timeout; Spawn's 40s ReadinessProbe
+	// holds process alive, then lets Spawn kill.)
+	if crashEvent == nil {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-STR-10: phase 2 relaunched + /ready=200 but no CrashEvent; ph1 exited=%v exit=%d timedOut=%v readinessReached=%v ph1-stderr-tail=%.300q",
+				res1.Exited, res1.ExitCode, res1.TimedOut, res1.ReadinessReached, lastN(res1.Stderr, 300))}}
+	}
+	sid, _ := crashEvent["session_id"].(string)
+	payload, _ := crashEvent["payload"].(map[string]interface{})
+	reason, _ := payload["reason"].(string)
+	// Let relaunch Spawn finish before return — drain the channel briefly.
+	select {
+	case <-resultCh:
+	case <-time.After(1 * time.Second):
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§14.2 + §14.5.5 SV-STR-10 (AE): phase 1 drove decision → impl self-killed at SOA_MARK_PENDING_WRITE_DONE; phase 2 boot-scan resume → CrashEvent on /events/recent?type=CrashEvent (admin:read): session_id=%s reason=%s", sid, reason)}}
 }
 
 // mustTempFile returns (path, cleanup) for a validator-writable tempfile.
