@@ -146,6 +146,24 @@ var Handlers = map[string]Handler{
 	"SV-HOOK-06": handleSVHOOK06,
 	"SV-HOOK-07": handleSVHOOK07,
 	"SV-HOOK-08": handleSVHOOK08,
+
+	// M3 Week 4 (T-12) — SV-GOV (§6/§18/§19) + SV-PRIV (§10.7).
+	// Impl shipped 9141fd1 (T-12a) + 87bbe2b (T-12b) Wed 2026-04-22.
+	"SV-GOV-01":  handleSVGOV01,
+	"SV-GOV-02":  handleSVGOV02,
+	"SV-GOV-03":  handleSVGOV03,
+	"SV-GOV-04":  handleSVGOV04,
+	"SV-GOV-05":  handleSVGOV05,
+	"SV-GOV-06":  handleSVGOV06,
+	"SV-GOV-07":  handleSVGOV07,
+	"SV-GOV-08":  handleSVGOV08,
+	"SV-GOV-09":  handleSVGOV09,
+	"SV-GOV-11":  handleSVGOV11,
+	"SV-PRIV-01": handleSVPRIV01,
+	"SV-PRIV-02": handleSVPRIV02,
+	"SV-PRIV-03": handleSVPRIV03,
+	"SV-PRIV-04": handleSVPRIV04,
+	"SV-PRIV-05": handleSVPRIV05,
 }
 
 func stub(reason string) Handler {

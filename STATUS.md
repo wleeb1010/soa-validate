@@ -4,6 +4,62 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 evening (T-12 wire-up: SV-GOV + SV-PRIV land — +7 flips → 80 pass / 0 fail (after :7700 bounce))
+
+**Scoreboard (this run, polluted chain): 76 pass / 1 fail / 15 skip / 3 error.**
+**Scoreboard (after :7700 bounce + re-run): 80 pass / 0 fail / 15 skip / 0 error (+7 from 73).**
+
+Impl shipped T-12a (`9141fd1`) + T-12b (`87bbe2b`). Validator wired all 15 SV-GOV + SV-PRIV probes in `internal/testrunner/handlers_m3_t12.go` + registered in `Handlers` map.
+
+### Flipped (7 new passes)
+
+| Test | Mechanism |
+|---|---|
+| **SV-GOV-01** | live `GET /version` → 200; assert soaHarnessVersion="1.0", supported_core_versions matches A.B pattern, runner_version + generated_at present |
+| **SV-GOV-05** | live `GET /errata/v1.0.json` → 200; assert spec_version="1.0" + errata array with id+section per entry |
+| **SV-GOV-06** | vector — `soa-validate.lock` declares spec_repo + spec_commit_sha (40-hex) + spec_manifest_sha256 (64-hex) per §18.1 |
+| **SV-GOV-07** | vector — read core spec markdown, parse §2 `## 2. Normative References` block, regex-extract `**[REF]**` entries, assert each carries a pin marker (RFC#, version tag, year-month, BCP, digest) |
+| **SV-GOV-08** | live `POST /sessions` with `supported_core_versions=["2.5","3.0"]` → 400 `VersionNegotiationFailed` + body carries runner_supported + caller_supported sets per §19.4.1 |
+| **SV-GOV-09** | live `POST /sessions` with `supported_core_versions=["0.9","1.0","2.5"]` → 201; readback /version confirms 1.0 selected as highest tuple |
+| **SV-PRIV-03** | subprocess-isolated — `POST /privacy/delete_subject(scope=memory)` → 200 with 64-hex audit_record_hash; `POST /privacy/export_subject` → 200 with suppressions[] mirrored; bearer-less → 401 |
+
+### Routed-with-Finding-ask (8 skips, all blocked on impl/spec follow-ups)
+
+| Test | Finding | Asks |
+|---|---|---|
+| **SV-GOV-02/03/04/11** + **SV-PRIV-01** (5 tests) | **AF (impl)** | Serve `docs/{stability-tiers,migrations,errata-v1.0,release-gate,data-inventory}` via `/docs/*` HTTP routes. Today they're repo-root files unreachable to validator over HTTP. Add to `versionPlugin` or a new `governance/docs-plugin.ts`. |
+| **SV-PRIV-02** | **AG (impl)** | `recordLoad` throws `MemoryDeletionForbidden` (state-store.ts:152) on a sensitive-personal note, but sessions-route.ts:455 catch falls into `console.warn`-only branch for non-MemoryTimeout errors — silently swallowed. Catch + emit a `/logs/system/recent` record (`category=MemoryDegraded`, `level=warn`, `code=sensitive-class-forbidden`) so validator can observe via subprocess + memmock-seeded sensitive-personal note. |
+| **SV-PRIV-04** | **AH (impl)** | `RetentionSweepScheduler` defaults to `intervalMs=24h` + `tickIntervalMs=5min` with no env override (start-runner.ts:612). Add `RUNNER_RETENTION_TICK_MS` + `RUNNER_RETENTION_INTERVAL_MS` env hooks (production-guard pattern, mirrors `RUNNER_CONSOLIDATION_TICK_MS` + `_ELAPSED_MS` from §8.4.1 + Finding AC). |
+| **SV-PRIV-05** | **AI (spec)** | impl reads `card.security.data_residency` (start-runner.ts:629) but `schemas/agent-card.schema.json` security has `additionalProperties=false` and doesn't declare `data_residency`. Add `data_residency:array<string>` to security so the §10.7.2 SV-PRIV-05 surface has spec coverage. |
+
+### Caused chain-pollution regression (4 tests)
+
+| Test | Status (this run) | Cause |
+|---|---|---|
+| **HR-14**, **SV-AUDIT-RECORDS-01**, **SV-AUDIT-RECORDS-02**, **SV-PERM-21** | error / fail | The first SV-PRIV-03 run (before I switched it to subprocess) wrote `SubjectSuppression` audit rows to live `:7700` chain. `schemas/audit-records-response.schema.json` `items.required` includes `id, args_digest, capability, control, handler` — admin-event SubjectSuppression rows don't carry these decision-style fields. Schema validation fails on page 8 records[9]. |
+
+**Resolution paths** (any one):
+1. **Bounce :7700** — chain is in-memory, restart clears my pollution. Confirmed via `audit/chain.ts:40` (records: AuditRecord[] = []). After bounce + rerun: 80 pass / 0 fail / 15 skip / 0 error.
+2. **Finding AJ (spec)**: `schemas/audit-records-response.schema.json` needs an `oneOf` discriminator on `decision` so SubjectSuppression rows validate without decision-only fields (or impl populates stub values). Real spec gap regardless of my probe — anyone calling `/privacy/delete_subject` would trigger it.
+
+### Note: SV-PRIV-03 deliberately subprocess-isolated
+
+Original probe ran against live `:7700`, surfaced the SubjectSuppression schema gap on first call. Switched to subprocess (own ephemeral port + isolated chain) so future runs don't re-pollute the live chain. The pollution that's already there from the first run will clear on next `:7700` bounce. Finding AJ is filed regardless because the gap exists in any deployment.
+
+### Updated trajectory
+
+- **Today (after bounce)**: 80 pass on this Windows host
+- **+ Finding AE (CrashEvent)**: 80 → 81
+- **+ Finding AF (docs HTTP routes)**: 81 → 86 (5 tests SV-GOV-02/03/04/11 + SV-PRIV-01)
+- **+ Finding AG (sensitive-personal surface)**: 86 → 87 (SV-PRIV-02)
+- **+ Finding AH (retention env hooks)**: 87 → 88 (SV-PRIV-04)
+- **+ Finding AI (data_residency in schema)**: 88 → 89 (SV-PRIV-05)
+- **+ Finding AJ (audit schema discriminator)**: 89 → 89 (already wired; just unblocks the regression class)
+
+So T-12 surface alone closes 7 today; Findings AE/AF/AG/AH/AI bring an additional +9 when impl + spec ship. **M3 ceiling estimate refresh on this Windows host: ~89 from T-12 alone, then V-9a/b/c bulk + V-10/V-11/V-12 push toward the 120+ target per yesterday's V-batch breakdown.**
+
+---
+
 ## 2026-04-22 (Findings AA/AB/AC/AD land — +4 flips → 73 pass / 0 fail)
 
 **Scoreboard: 73 pass / 0 fail / 7 skip / 0 error (+4 from 69).**
