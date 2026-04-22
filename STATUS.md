@@ -4,6 +4,66 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-47/L-48/L-49 spec wave + HR-09/10 validator-local — 134 pass / 0 fail / 24 skip)
+
+**Scoreboard: 134 pass / 0 fail / 24 skip / 0 error (+2 from 132).** Clean. Three spec bundles + two validator-local greens absorbed in this pass. Nine V-9b SV-PERM Findings (BB..BJ) all closed spec-side; impl-ships pending.
+
+### Spec pin cascade
+
+| Bump | Manifest | Closes |
+|---|---|---|
+| L-47 (`eb5aedb`) | `7cd569c9...100b` | §14.5.5 Post-Crash Observation via admin:read scope (SV-STR-10 observability half — impl AE still owes CrashEvent emission) |
+| L-48 (`177f211`) | `7f61f254...3af4` | 8 of 9 V-9b findings (BC/BD/BE/BF/BG/BH/BI/BJ) — full normative clauses + `test-vectors/handler-keypair-overlap/` fixture (2 Ed25519 keys, deterministic generator) |
+| L-49 (`782735c`) | `1ee28823...51de` | Final V-9b finding BB (§10.4 + §10.4.1 escalation state-machine + §10.4.2 RUNNER_HANDLER_ESCALATION_TIMEOUT_MS + SOA_HANDLER_ESCALATION_RESPONDER env hooks) |
+
+### Flipped (HR-09 + HR-10 validator-local)
+
+Per user M3-testable call: §9.3 marker-escape + §9.1 /tasks/ immutable are pure validator logic on diff bytes — no SI runtime needed because spec §9.3 says "harness MUST reject any diff that..." and the validator IS the harness for that assertion.
+
+New `internal/sidiff` package:
+- `FindEditableSpan` — scans source for paired `=== EDITABLE SURFACES` markers, returns [start, end) line range
+- `ParseUnifiedDiff` — extracts per-hunk target path + new-file line range from unified-diff text
+- `ValidateDiff` — applies §9.1 immutable-target check + §9.3 span-bounds check, returns §24 error code on reject
+
+| Test | Probe |
+|---|---|
+| **HR-09** | Synthetic agent.py with markers + valid in-span diff (line 7 inside [6,10) → accepted) + escape diff (line 3 outside span → SelfImprovementRejected). Asserts both. |
+| **HR-10** | tasks/benchmark-01.harbor diff → ImmutableTargetEdit (correct §24 code). Sanity: non-tasks in-span diff still accepted. |
+
+### V-9b SV-PERM stub messages all sharpened
+
+11 SV-PERM-0X skip messages (06/07/08/09/10/12/13/14/15/16/17) now cite the L-48 §refs they unblock (§10.5.5/§10.5.7/§10.6.2/§10.6.3/§10.6.4/§10.6.5/§10.6.6) + exact env/endpoint/schema names. SV-PERM-03/04 cite L-49 §10.4.1/§10.4.2 escalation state-machine. Each one will swap from "L-XX BX spec shipped, awaiting impl" stub to a real subprocess probe the moment impl wires the corresponding surface — probe shapes already documented in the diagnostic per finding.
+
+### V-9b BB..BJ diagnostic round-trip
+
+Sent the full per-finding diagnostic sheet (test IDs / section refs / missing surfaces / proposed fix shapes) to spec session. **All 9 findings now have normative spec clauses landed across L-48 + L-49**:
+
+| Finding | Test(s) | L-XX | Spec clause |
+|---|---|---|---|
+| BB | SV-PERM-03/04 | L-49 | §10.4.1 escalation state-machine + §10.4.2 env hooks |
+| BC | SV-PERM-06/07 | L-48 | §10.5.5 WORM Sink Modeling Test Hook + sink_timestamp schema |
+| BD | SV-PERM-08 | L-48 | §10.6.2 SOA_HANDLER_ENROLLED_AT |
+| BE | SV-PERM-09/14/15 | L-48 | §10.6.2 RUNNER_HANDLER_CRL_POLL_TICK_MS + §10.6.5 retroactive SuspectDecision admin-row |
+| BF | SV-PERM-10 | L-48 | §10.6.2 SOA_HANDLER_KEYPAIR_OVERLAP_DIR + handler-keypair-overlap fixture |
+| BG | SV-PERM-12 | L-48 | §10.6.3 POST /handlers/enroll |
+| BH | SV-PERM-13 | L-48 | §10.6.4 GET /security/key-storage |
+| BI | SV-PERM-16 | L-48 | §10.6.6 retention_class schema + derivation rule |
+| BJ | SV-PERM-17 | L-48 | §10.5.7 POST /audit/reader-tokens |
+
+### Trajectory refresh (with corrected attribution)
+
+- **Today**: 134 pass / 0 fail / 24 skip
+- AE+AV+AW+BA+BB impl ships: +7 (1 SV-STR-10 + 1 HR-07 + 2 (SV-PERM-02 + HR-11) + 1 SV-AGENTS-08 + 2 SV-PERM-03/04)
+- L-48 BC/BD/BE/BF/BG/BH/BI/BJ impl ships: +11 across 11 SV-PERM tests
+- **Ceiling this host: ~152** (134 + 7 + 11) once all impl-side ships land
+- **9 ops-confused tests** (live :7700 booted with wrong tools fixture) restore to baseline on impl rebind; not double-counted
+
+### Ops flag (carried)
+
+Live `:7700` runs `agents-md-denylist/tools-with-denied.json` (4 tools: fs_read/fs_write_safe/http_get/shell_exec) instead of conformance tools. 9 SV-* tests 404 on "unknown-tool". Routed to impl-ops; restores 134 baseline on rebind.
+
+---
+
 ## 2026-04-22 night (L-46 + V-9b SV-PERM bulk — 132 pass / 0 fail / 26 skip)
 
 **Scoreboard: 132 pass / 0 fail / 26 skip / 0 error (+4 from 128; board crosses 130).**

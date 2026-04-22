@@ -45,25 +45,25 @@ func handleSVPERM02(ctx context.Context, h HandlerCtx) []Evidence {
 			"→ /ready=503 + {Config/error/ConfigPrecedenceViolation}."}}
 }
 
-// ─── SV-PERM-03 §10.4 — Autonomous escalation ────────────────────────
+// ─── SV-PERM-03 §10.4.1/§10.4.2 — escalation (L-49 BB spec live) ─────
 
 func handleSVPERM03(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-03 (§10.4 autonomous escalation): autonomous handler facing high-risk MUST escalate; 30s silence → deny. " +
-			"Impl has no autonomous-handler test hook (would need RUNNER_HANDLER_ESCALATION_TIMEOUT_MS + a simulated Interactive " +
-			"responder sink). **Finding BB (impl)**: ship escalation-timeout env hook (production-guard loopback-only) + a mock " +
-			"Interactive-responder env that injects yes/no/silence. Validator probe: drive a decision needing escalation, observe " +
-			"30s silence → 403 Deny with {reason=escalation-timeout}."}}
+		Message: "SV-PERM-03 (§10.4.1 escalation state-machine + §10.4.2 RUNNER_HANDLER_ESCALATION_TIMEOUT_MS + " +
+			"SOA_HANDLER_ESCALATION_RESPONDER env hooks — L-49 BB spec shipped): awaiting impl ship. Validator probe " +
+			"(post-impl): subprocess with tick=500ms + responder tempfile, submit high-risk Autonomous-signed PDA, write " +
+			"nothing to responder for 600ms → assert 403 `{error:PermissionDenied, reason:escalation-timeout}` + audit row " +
+			"with handler=\"Autonomous\"."}}
 }
 
-// ─── SV-PERM-04 §10.4 / §19.6 — HITL == Interactive ──────────────────
+// ─── SV-PERM-04 §10.4.1/§19.6 — HITL distinct (L-49 BB spec live) ────
 
 func handleSVPERM04(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-04 (§10.4/§19.6 HITL distinct from Autonomous signature): Coordinator/Autonomous signature does NOT satisfy HITL. " +
-			"Same escalation-timeout machinery blocker as SV-PERM-03. **Finding BB (impl)**: once the escalation-timeout hook ships, " +
-			"validator submits a high-risk decision signed by an Autonomous-role handler, asserts response has {reason=hitl-required, " +
-			"not-satisfied-by-autonomous}."}}
+		Message: "SV-PERM-04 (§10.4.1 HITL distinct from Autonomous signature — L-49 BB spec shipped): awaiting impl ship of " +
+			"the escalation responder surface. Validator probe (post-impl): submit Autonomous-signed PDA with " +
+			"`{response:\"approve\"}` written to SOA_HANDLER_ESCALATION_RESPONDER → assert 403 `{reason:hitl-required, " +
+			"detail:autonomous-insufficient}` (Autonomous cannot self-approve HITL-gated decisions)."}}
 }
 
 // ─── SV-PERM-05 §10.5 — Audit chain prev_hash ────────────────────────
@@ -122,55 +122,51 @@ func svperm05BootstrapBearer(h HandlerCtx) string {
 	return bearer
 }
 
-// ─── SV-PERM-06 §10.5 — WORM sink append-only ────────────────────────
+// ─── SV-PERM-06 §10.5.5 — WORM sink append-only (L-48 BC spec live) ──
 
 func handleSVPERM06(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-06 (§10.5 WORM sink append-only): requires a real WORM sink deployment (S3 Object Lock / Azure Immutable / " +
-			"on-prem WORM). Impl in-memory audit chain doesn't model deletion/mutation paths. **Finding BC (impl)**: expose a " +
-			"RUNNER_AUDIT_SINK_MODE=worm-in-memory test hook that rejects mutation/deletion via the Runner's own credentials, " +
-			"matching the §10.5 behavioral contract. Validator probe: attempt to DELETE/PUT against /audit/records path, assert 405 + " +
-			"ImmutableAuditSink log record."}}
+		Message: "SV-PERM-06 (§10.5.5 WORM Sink Modeling Test Hook — L-48 BC spec shipped): awaiting impl ship of " +
+			"RUNNER_AUDIT_SINK_MODE=worm-in-memory env hook. Validator probe (post-impl): POST /audit/records or attempt mutation " +
+			"via Runner creds → 405 `{error:ImmutableAuditSink}` + corresponding system-log record."}}
 }
 
-// ─── SV-PERM-07 §10.5 — WORM external timestamp ──────────────────────
+// ─── SV-PERM-07 §10.5.5 — sink_timestamp external (L-48 BC schema) ───
 
 func handleSVPERM07(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-07 (§10.5 WORM external timestamp ±1s UTC): same WORM-sink blocker as SV-PERM-06. **Finding BC (impl)**: " +
-			"audit-record schema needs a `sink_timestamp` field populated by the WORM sink (not the Runner), so validator can " +
-			"compare against Runner's internal `timestamp` + assert |sink_timestamp - record_timestamp| ≤ 1s."}}
+		Message: "SV-PERM-07 (§10.5.5 sink_timestamp schema field — L-48 BC spec shipped): audit-records-response.schema.json " +
+			"gains optional sink_timestamp field populated by WORM sink. Validator probe (post-impl): assert " +
+			"|sink_timestamp − timestamp| ≤ 1s across returned records."}}
 }
 
-// ─── SV-PERM-08 §10.6 — Handler key rotation 90d ─────────────────────
+// ─── SV-PERM-08 §10.6.2 — 90d key rotation (L-48 BD hook live) ───────
 
 func handleSVPERM08(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-08 (§10.6 handler key > 90d → reject): needs clock-injection for T_ref + handler-kid with enrolled_at > 90d " +
-			"in the past. Impl has RUNNER_TEST_CLOCK hook but no handler-key enrollment-timestamp control. **Finding BD (impl)**: " +
-			"expose trust-anchor `issued_at` in initial-trust.json or accept SOA_HANDLER_ENROLLED_AT=<iso> env hook; validator drives " +
-			"RUNNER_TEST_CLOCK=T_ref + handler-kid enrolled 91d earlier, asserts high-risk decision denied with HandlerKeyExpired."}}
+		Message: "SV-PERM-08 (§10.6.2 SOA_HANDLER_ENROLLED_AT env hook — L-48 BD spec shipped): awaiting impl ship. Validator " +
+			"probe (post-impl): RUNNER_TEST_CLOCK=T_ref + SOA_HANDLER_ENROLLED_AT=(T_ref−91d), submit high-risk PDA-signed " +
+			"decision → 403 `{error:HandlerKeyExpired, reason:key-age-exceeded}`."}}
 }
 
-// ─── SV-PERM-09 §10.6 — CRL refresh hourly ───────────────────────────
+// ─── SV-PERM-09 §10.6.2 — handler-CRL poll (L-48 BE hook live) ───────
 
 func handleSVPERM09(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-09 (§10.6 revoked kid → HandlerKeyRevoked within 1h): composes with SV-BOOT-04 revocation machinery. " +
-			"SV-BOOT-04 covers bootstrap-publisher-kid revocation; this test needs HANDLER kid revocation (§10.6 CRL refresh path). " +
-			"**Finding BE (impl)**: extend Finding AQ's revocation file watcher to cover handler-kid revocation — same file format " +
-			"with {revoked_handler_kid, reason, revoked_at}; watched under RUNNER_HANDLER_CRL_POLL_TICK_MS. Validator drives kid " +
-			"revocation mid-run, observes next PDA-signed decision → 403 HandlerKeyRevoked within 1 poll tick."}}
+		Message: "SV-PERM-09 (§10.6.2 RUNNER_HANDLER_CRL_POLL_TICK_MS + SOA_BOOTSTRAP_REVOCATION_FILE {handler_kid, ...} " +
+			"extension — L-48 BE spec shipped): awaiting impl ship. Validator probe (post-impl): tick=200ms + write " +
+			"{handler_kid: soa-conformance-test-handler-v1.0, reason: compromise-drill, revoked_at: ...} mid-run → next " +
+			"PDA decision → 403 `{error:HandlerKeyRevoked}` within one poll tick."}}
 }
 
-// ─── SV-PERM-10 §10.6 — Rotation overlap ≥ 24h ───────────────────────
+// ─── SV-PERM-10 §10.6.2 — rotation overlap (L-48 BF fixture live) ────
 
 func handleSVPERM10(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-10 (§10.6 rotation overlap ≥ 24h): both old AND new kid accepted during ≥24h overlap. Needs multi-kid " +
-			"enrollment + clock injection. **Finding BF (impl)**: handler-keypair test hooks should support a two-kid overlap fixture " +
-			"(kid-old + kid-new both signed by same trust anchor, each with issued_at/rotation_overlap_end). Validator drives " +
-			"RUNNER_TEST_CLOCK inside the overlap window + submits two PDAs signed by each kid, asserts both 200 handler_accepted."}}
+		Message: "SV-PERM-10 (§10.6.2 SOA_HANDLER_KEYPAIR_OVERLAP_DIR + test-vectors/handler-keypair-overlap/ fixture — " +
+			"L-48 BF spec + fixture shipped): awaiting impl ship of the env hook. Validator probe (post-impl): point env at " +
+			"the two-kid fixture dir, set RUNNER_TEST_CLOCK inside overlap window [2026-04-22T00:00Z, 2026-04-23T00:00Z], " +
+			"submit PDAs signed by each kid → both 200 `handler_accepted:true`."}}
 }
 
 // ─── SV-PERM-11 §10.6 — Key-type enforcement ─────────────────────────
@@ -201,64 +197,61 @@ func handleSVPERM11(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: fmt.Sprintf("§10.6 key-type enforcement: pinned PDA uses alg=%q (allowed); full enrollment-time RS256/RSA<3072 rejection needs a handler-enrollment surface (§10.6.1) not yet shipped — structural JWS-alg check covered by SV-PERM-22 live path", parsed.Header.Alg)}}
 }
 
-// ─── SV-PERM-12 §10.6 — kid uniqueness ───────────────────────────────
+// ─── SV-PERM-12 §10.6.3 — kid uniqueness (L-48 BG endpoint live) ─────
 
 func handleSVPERM12(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-12 (§10.6 kid uniqueness at enrollment): needs handler-enrollment surface. Impl boot-time trust anchors are " +
-			"pinned via Card, not a dynamic enrollment endpoint. **Finding BG (impl/spec)**: define POST /handlers/enroll (operator-bearer, " +
-			"accepts {kid, spki, algo, issued_at}) that rejects duplicate-kid with HandlerKidConflict; enables SV-PERM-12 + SV-PERM-13 + " +
-			"parts of SV-PERM-08/09/10/11's enrollment-side coverage."}}
+		Message: "SV-PERM-12 (§10.6.3 POST /handlers/enroll endpoint — L-48 BG spec shipped): awaiting impl ship. Validator " +
+			"probe (post-impl): operator-bearer enrolls a kid, re-enrolls same kid → 409 `{error:HandlerKidConflict, " +
+			"detail:kid already enrolled}`. Composes with SV-PERM-11 enrollment-time RS256 rejection path."}}
 }
 
-// ─── SV-PERM-13 §10.6 — HSM / keystore storage ───────────────────────
+// ─── SV-PERM-13 §10.6.4 — keystore storage (L-48 BH endpoint live) ───
 
 func handleSVPERM13(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-13 (§10.6 private key not on-disk): deployment-security assertion; in-memory impl is trivially compliant " +
-			"(no private key material on disk by construction) but validator can't prove the negative without a trusted introspection " +
-			"surface. **Finding BH (impl)**: expose GET /security/key-storage (operator-bearer) returning {storage_mode ∈ {hsm, " +
-			"software-keystore, ephemeral}, private_keys_on_disk:bool} so validator can assert compliance without filesystem access."}}
+		Message: "SV-PERM-13 (§10.6.4 GET /security/key-storage endpoint — L-48 BH spec shipped): awaiting impl ship. Validator " +
+			"probe (post-impl): operator-bearer GET → 200 `{storage_mode ∈ {hsm,software-keystore,ephemeral}, " +
+			"private_keys_on_disk:bool, provider?, attestation_format?}`. Assert private_keys_on_disk===false for conformance."}}
 }
 
-// ─── SV-PERM-14 §10.6 — Runner CRL refresh SLA ───────────────────────
+// ─── SV-PERM-14 §10.6.2 — CRL refresh SLA (L-48 BE observability) ────
 
 func handleSVPERM14(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-14 (§10.6 CRL refresh ≤ 60min SLA): composes with SV-BOOT-04 AQ. Bootstrap revocation poller shipped; " +
-			"handler CRL refresh path is same pattern. **Finding BE (impl)** (same as SV-PERM-09): handler CRL refresh tick hook + " +
-			"observability surface on /health or /logs/system/recent showing last_crl_refresh_at. Validator polls with tick override, " +
-			"asserts refresh interval < 60min ceiling."}}
+		Message: "SV-PERM-14 (§10.6.2 CRL refresh ≤ 60min observability — L-48 BE spec shipped): last_crl_refresh_at exposed on " +
+			"/health or /logs/system/recent once impl ships BE. Validator probe (post-impl): poll /health, assert observed " +
+			"refresh intervals ≤ 60min ceiling (using RUNNER_HANDLER_CRL_POLL_TICK_MS override for sub-second test cadence)."}}
 }
 
-// ─── SV-PERM-15 §10.6 — SuspectDecision flagging ─────────────────────
+// ─── SV-PERM-15 §10.6.5 — SuspectDecision retroactive (L-48 BE admin-row) ─
 
 func handleSVPERM15(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-15 (§10.6 SuspectDecision flagging in 24h before revocation): composes with SV-PERM-09. Once handler " +
-			"revocation lands (BE), impl must flag audit records signed by the revoked kid in the 24h preceding revocation with " +
-			"SuspectDecision. **Finding BE-ext**: retroactive flagging on /audit/records — record body gains suspect_decision:true + " +
-			"suspect_reason when revocation is observed. Same L-41 AJ admin-row discriminator pattern applies."}}
+		Message: "SV-PERM-15 (§10.6.5 retroactive SuspectDecision admin-row + schema oneOf third branch — L-48 BE spec shipped): " +
+			"awaiting impl ship. Validator probe (post-impl): drive N PDA-signed decisions, revoke the handler kid via " +
+			"revocation file, observe retroactive `suspect_decision:true + suspect_reason:kid-revoked-24h-window` on the " +
+			"N records via /audit/records."}}
 }
 
-// ─── SV-PERM-16 §10.5 — WORM retention tiers ─────────────────────────
+// ─── SV-PERM-16 §10.6.6 — retention_class schema (L-48 BI live) ──────
 
 func handleSVPERM16(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-16 (§10.5 DFA sessions ≥ 365d retention, others ≥ 90d): retention-policy assertion needs long-running clock " +
-			"+ WORM sink model. Composes with SV-PRIV-04's retention sweep machinery but per-class retention ceiling is a separate policy " +
-			"surface. **Finding BI (impl)**: audit records gain `retention_class ∈ {dfa-365d, standard-90d}` derived from session's " +
-			"granted_activeMode; retention sweep honors the per-record class. Validator observes via /audit/records response schema."}}
+		Message: "SV-PERM-16 (§10.6.6 retention_class schema + derivation rule — L-48 BI spec shipped): audit records gain " +
+			"retention_class ∈ {dfa-365d, standard-90d} derived from session's granted_activeMode. Validator probe (post-impl): " +
+			"mint one DFA + one ReadOnly session, drive a decision each, assert records[dfa_sid].retention_class===\"dfa-365d\" " +
+			"and records[readonly_sid].retention_class===\"standard-90d\"."}}
 }
 
-// ─── SV-PERM-17 §10.5 — Audit-reader access ──────────────────────────
+// ─── SV-PERM-17 §10.5.7 — audit reader tokens (L-48 BJ endpoint live) ─
 
 func handleSVPERM17(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-17 (§10.5 read-only audit-reader scope): validator needs a bearer with audit-read-only scope (no write authority). " +
-			"Impl bootstrap bearer has implicit full authority on audit surface. **Finding BJ (impl)**: POST /audit/reader-tokens (operator-bearer) " +
-			"→ returns a short-lived bearer with scope audit:read:* only. Validator asserts read succeeds + any POST/PUT/DELETE returns 403 " +
-			"bearer-lacks-audit-write-scope."}}
+		Message: "SV-PERM-17 (§10.5.7 POST /audit/reader-tokens endpoint — L-48 BJ spec shipped): awaiting impl ship. Validator " +
+			"probe (post-impl): operator-bearer mints reader_bearer with scope audit:read:*. Assert: (1) reader_bearer GETs " +
+			"/audit/tail + /audit/records succeed; (2) any POST/PUT/DELETE with reader_bearer → 403 " +
+			"`{error:bearer-lacks-audit-write-scope}`."}}
 }
 
 // ─── SV-PERM-18 §10.6.1 — CRL artifact schema ────────────────────────

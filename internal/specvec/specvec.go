@@ -120,6 +120,9 @@ const (
 	JWTClockSkewIatFuture   = "test-vectors/jwt-clock-skew/iat-future.jwt"
 	JWTClockSkewExpExpired  = "test-vectors/jwt-clock-skew/exp-expired.jwt"
 
+	// L-48 — SV-PERM-10 handler-keypair overlap fixture (BF).
+	HandlerKeypairOverlapDir = "test-vectors/handler-keypair-overlap"
+
 	// AGENTS.md grammar fixture set (AT + AU) — seven scenarios exercising
 	// §7.2/§7.3/§7.4/§7.2#4 failure paths.
 	AgentsMDGrammarMissingH2           = "test-vectors/agents-md-grammar/missing-h2/AGENTS.md"
