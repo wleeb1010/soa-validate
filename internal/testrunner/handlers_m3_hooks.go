@@ -518,17 +518,101 @@ func handleSVHOOK07(ctx context.Context, h HandlerCtx) []Evidence {
 	})
 }
 
-// SV-HOOK-08: hook reentrancy detection. Hook makes an HTTP call back to
-// the Runner's /permissions/decisions on its own session; impl MUST
-// detect the reentry and terminate the session with SessionEnd carrying
-// stop_reason=HookReentrancy (or equivalent termination signal).
+// SV-HOOK-08: hook reentrancy detection. Pre hook makes an HTTP POST
+// back to the Runner's /permissions/decisions carrying the
+// x-soa-hook-pid header with its own PID; impl MUST detect, return 403
+// hook-reentrancy, revoke the session bearer, and emit a §14.1
+// SessionEnd event with payload.stop_reason=HookReentrancy per Finding
+// N (impl f43337d).
 //
-// Script needs the parent Runner's port + the in-flight session bearer,
-// which the hook protocol does NOT provide. We pass them via env vars
-// set at subprocess spawn so the hook can read them. This pattern is
-// test-only; production hooks cannot know a live bearer.
+// The hook child inherits RUNNER_PORT from the Runner subprocess env,
+// so the script can self-discover the callback URL without test-only
+// wiring.
+const preReentrancyScript = `import os, json, urllib.request, sys
+port = os.environ.get("RUNNER_PORT", "")
+if not port:
+    sys.exit(0)
+try:
+    body = json.dumps({
+        "tool": "fs__read_file",
+        "session_id": "ses_reentrant000000000000",
+        "args_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    }).encode()
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/permissions/decisions",
+        method="POST",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer reentrant-dummy",
+            "x-soa-hook-pid": str(os.getpid()),
+        },
+    )
+    try:
+        urllib.request.urlopen(req, timeout=3)
+    except urllib.error.HTTPError:
+        # Expected: impl returns 403 hook-reentrancy. Absorb.
+        pass
+except Exception:
+    pass
+sys.exit(0)
+`
+
 func handleSVHOOK08(ctx context.Context, h HandlerCtx) []Evidence {
-	return hookPending(h, "SV-HOOK-08", "§15.3 no hook reentrancy — detection of hook-originated HTTP re-entry into /permissions/decisions not yet wired in impl. Grep of packages/runner/src returns zero HookReentrancy references. Needs impl-side: (1) hook-context tag on HTTP calls, (2) SessionEnd.stop_reason=HookReentrancy emission, (3) session terminate.")
+	return runHookHarness(ctx, h, hookTestHarness{
+		testID:      "SV-HOOK-08",
+		description: "§15 hook-reentrancy guard — Pre hook callbacks into /permissions/decisions MUST 403 hook-reentrancy + terminate session (SessionEnd.stop_reason=HookReentrancy) per Finding N",
+		preScript:   preReentrancyScript,
+		probe: func(probeCtx context.Context, client *runner.Client, _ string) (string, bool) {
+			sid, sbearer, err := mintSessionForHook(probeCtx, client, "SV-HOOK-08-hook-bearer")
+			if err != nil {
+				return "mint session: " + err.Error(), false
+			}
+			// Baseline: session exists + is readable.
+			if _, statusBefore, _ := fetchEventsRaw(probeCtx, client, sid, sbearer); statusBefore != http.StatusOK {
+				return fmt.Sprintf("baseline /events/recent status=%d before reentrancy; minted session must be readable first", statusBefore), false
+			}
+			// Outer decision triggers the Pre hook, which re-enters.
+			_, _, err = postDecisionForHook(probeCtx, client, sid, sbearer, "fs__read_file", hookProbeDigest)
+			if err != nil {
+				return "POST /permissions/decisions (outer): " + err.Error(), false
+			}
+			// Allow emission + revoke to land.
+			time.Sleep(400 * time.Millisecond)
+			// Impl's session-store.revoke() deletes the session outright,
+			// so /events/recent returns 404 unknown-session — that itself
+			// is direct evidence of termination (a session that validated
+			// 400ms ago is now gone). If a future impl keeps the session
+			// for forensics, fall back to asserting the SessionEnd event.
+			body, statusAfter, err := fetchEventsRaw(probeCtx, client, sid, sbearer)
+			if err != nil {
+				return "GET /events/recent after reentrancy: " + err.Error(), false
+			}
+			if statusAfter == http.StatusNotFound {
+				return fmt.Sprintf("SV-HOOK-08: hook-originated POST /permissions/decisions with x-soa-hook-pid → session terminated (/events/recent transitioned 200 → 404 unknown-session). Per Finding N, impl.session-store.revoke() deletes the session; the 404 is direct proof of termination."), true
+			}
+			if statusAfter != http.StatusOK {
+				return fmt.Sprintf("/events/recent status=%d after reentrancy; want 404 (session terminated) or 200 with SessionEnd[HookReentrancy]", statusAfter), false
+			}
+			// Session still readable — authoritative observable is SessionEnd emission.
+			var decoded struct {
+				Events []recentEvent `json:"events"`
+			}
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				return "decode /events/recent: " + err.Error(), false
+			}
+			for i := range decoded.Events {
+				if decoded.Events[i].Type == "SessionEnd" {
+					stopReason, _ := decoded.Events[i].Payload["stop_reason"].(string)
+					if stopReason == "HookReentrancy" {
+						return "SV-HOOK-08: SessionEnd event emitted with stop_reason=HookReentrancy per §15 + Finding N (session kept for forensics path)", true
+					}
+					return fmt.Sprintf("SessionEnd.stop_reason=%q; want HookReentrancy", stopReason), false
+				}
+			}
+			return fmt.Sprintf("/events/recent still returns 200 without a SessionEnd event (saw %d events: %s). §15 + Finding N require either session termination (404) or SessionEnd[HookReentrancy] emission.", len(decoded.Events), summarizeTypes(decoded.Events)), false
+		},
+	})
 }
 
 // fetchRecentEvents pulls /events/recent?session_id=<sid> and decodes.
@@ -540,25 +624,35 @@ type recentEvent struct {
 }
 
 func fetchRecentEvents(ctx context.Context, c *runner.Client, sessionID, bearer string) ([]recentEvent, error) {
+	body, status, err := fetchEventsRaw(ctx, c, sessionID, bearer)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("status=%d body=%.200q", status, string(body))
+	}
+	var decoded struct {
+		Events []recentEvent `json:"events"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return decoded.Events, nil
+}
+
+// fetchEventsRaw returns the raw body + status so callers can
+// distinguish 404 unknown-session from auth failures (SV-HOOK-08).
+func fetchEventsRaw(ctx context.Context, c *runner.Client, sessionID, bearer string) ([]byte, int, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
 		fmt.Sprintf("%s/events/recent?session_id=%s&limit=100", c.BaseURL(), sessionID), nil)
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status=%d body=%.200q", resp.StatusCode, string(raw))
-	}
-	var decoded struct {
-		Events []recentEvent `json:"events"`
-	}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-	return decoded.Events, nil
+	return raw, resp.StatusCode, nil
 }
 
 func findOutcomeEvent(events []recentEvent, typeName string) *recentEvent {

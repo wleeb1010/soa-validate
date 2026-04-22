@@ -4,6 +4,18 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (SV-HOOK-08 real probe — Finding N flipped; full SV-HOOK series green)
+
+**Scoreboard: 53 pass / 0 fail / 27 skip / 0 error.** All 8 SV-HOOK tests now green.
+
+Impl shipped Finding N (f43337d) with `HookReentrancyTracker` + `x-soa-hook-pid` header convention. I converted my `hookPending` stub for SV-HOOK-08 to a real probe: Pre hook (Python) reads `RUNNER_PORT` from its inherited env, POSTs to `/permissions/decisions` carrying `x-soa-hook-pid: <os.getpid()>`; validator then observes termination via `/events/recent` transitioning 200 → 404 `unknown-session` (impl's `session-store.revoke()` deletes the session, which is direct proof of termination). Forensics-retained path (future impl where session is kept after termination) accepted too — asserts `SessionEnd.stop_reason=HookReentrancy` on the live events.
+
+Shared helper refactored: `fetchEventsRaw` returns `(body, status, err)` so callers can distinguish 404 unknown-session from auth failures; `fetchRecentEvents` now wraps it.
+
+**Impl-side skip count: 0 → 0.** The 27 remaining skips are all validator-side stubs (`memoryPending`, `budgetPending`, `streamPending` + 1 pre-budgeted SSE skip + 3 crash-recovery fixtures). All are my next work.
+
+---
+
 ## 2026-04-21 (L-35 exit — Findings L/M/REG-04 all flipped; first zero-fail M3 run)
 
 **Scoreboard: 52 pass / 0 fail / 28 skip / 0 error.**
