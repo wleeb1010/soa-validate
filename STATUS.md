@@ -4,6 +4,64 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (V-9b/V-10/V-11/V-12 live wire-up wave — 147 pass / 0 fail / 11 skip) 🎯
+
+**Scoreboard: 147 pass / 0 fail / 11 skip / 0 error (+13 from 134).** Clean. M3 ceiling 152 with 3 new impl findings + AE remaining.
+
+Pin: 782735c → `5d30545`; manifest `4cbd08b7dd422474090573c96c8c6673fd16d655fd878d11d910a80ed0e5c3a8` byte-verified. L-50 closes one new validator-surfaced gap.
+
+### L-50 (`5d30545`) pin absorption
+
+**§10.6.3 POST /handlers/enroll now REQUIRES `role ∈ {Interactive, Coordinator, Autonomous}`.** Closes the BB-ext gap surfaced during Autonomous-kid PDA wire-up: default conformance handler is hardcoded `role:"Interactive"` in impl start-runner.ts:562; no env override, no role on /handlers/enroll. L-50 makes role enrollment the canonical path; SV-PERM-03/04 flip once impl ships the change.
+
+### Flipped (+13)
+
+| Test | Finding | Path | Mechanism |
+|---|---|---|---|
+| SV-PERM-02 | AW | live subprocess | loosening card (toolRequirements fs__write_file=AutoAllow under activeMode=ReadOnly) → /ready=503 + {Config/error/ConfigPrecedenceViolation} |
+| SV-PERM-06 | BC | live subprocess | RUNNER_AUDIT_SINK_MODE=worm-in-memory → DELETE /audit/records/<id> → 405 |
+| SV-PERM-07 | BC | live subprocess | `|sink_timestamp − timestamp| ≤ 1s` UTC across returned records |
+| SV-PERM-08 | BD | live subprocess | RUNNER_TEST_CLOCK=2026-04-22T12:00Z + SOA_HANDLER_ENROLLED_AT=2026-01-21T12:00Z (91d earlier) + PDA → 403 HandlerKeyExpired |
+| SV-PERM-09 | BE | live subprocess | RUNNER_HANDLER_CRL_POLL_TICK_MS=100 + write {handler_kid} to SOA_BOOTSTRAP_REVOCATION_FILE → PDA → 403 HandlerKeyRevoked |
+| SV-PERM-10 | BF | live subprocess | SOA_HANDLER_KEYPAIR_OVERLAP_DIR=test-vectors/handler-keypair-overlap + RUNNER_TEST_CLOCK inside overlap window → PDA accepted |
+| SV-PERM-12 | BG | pure live | POST /handlers/enroll: fresh kid → 201, duplicate kid → 409 HandlerKidConflict, RS256 algo → 400 AlgorithmRejected |
+| SV-PERM-13 | BH | pure live | GET /security/key-storage: storage_mode ∈ valid set + private_keys_on_disk===false |
+| SV-PERM-15 | BE | live subprocess | N PDA-signed decisions → revoke kid → /audit/records has SuspectDecision admin-rows (L-41 AJ discriminator third branch) |
+| SV-PERM-17 | BJ | pure live | POST /audit/reader-tokens → reader bearer (scope=audit:read:*) → read OK → write 403 bearer-lacks-audit-write-scope |
+| SV-AGENTS-08 | BA | live subprocess | entrypoint-mismatch grammar fixture → /ready=503 + AgentsMdInvalid(entrypoint-mismatch) |
+| HR-07 | AV | live subprocess | card with agentType=explore + activeMode=ReadOnly + fs__write_file decision → 403 agent-type-insufficient |
+| HR-11 | AW | live subprocess | shared with SV-PERM-02 — loosening card → ConfigPrecedenceViolation |
+
+### New findings surfaced during wire-up (routed to impl queue)
+
+| Finding | Test(s) | Ask |
+|---|---|---|
+| **BB-ext** (L-50 spec-side shipped) | SV-PERM-03/04 | §10.6.3 POST /handlers/enroll now requires role field — impl ships role enrollment → validator enrolls Autonomous kid → §10.4.1 escalation fires |
+| **BE-ext** | SV-PERM-14 | §10.6.2 CRL refresh ≤ 60min SLA needs observability — expose last_crl_refresh_at on /health OR write crl-refresh-complete system-log records periodically |
+| **BI-impl** | SV-PERM-16 | §10.5.6 retention_class schema shipped (L-48 BI), but impl audit-row builder doesn't populate it yet — derive from session.granted_activeMode at append time (DFA → dfa-365d; else → standard-90d) |
+
+### Calibrations worth naming
+
+- **HR-07 bootstrap path**: m2Bootstrap always requests DangerFullAccess which the ReadOnly-ceiling explore card rejected (403). Switched to a direct POST /sessions with `requested_activeMode:"ReadOnly"` matching the card cap.
+- **SV-PERM-03/04 autonomous PDA**: initial probe sent `handler_role:"Autonomous"` as a request body field, impl rejected with malformed-request (no such field in DecisionRequestBody). Correct path per impl decisions-route.ts:809 is `opts.handlerKeyRegistry.get(pdaSignerKid)?.role === "Autonomous"` — role is enrollment-time metadata, not per-request. L-50 BB-ext threads `role` on POST /handlers/enroll to close this.
+- **SV-PERM-09/15 PDA submission**: validator submits the pinned signed PDA (kid=soa-conformance-test-handler-v1.0, Ed25519) via the `pda` JSON-body field; impl checks kid against the revocation set post-poll-tick and returns 403 HandlerKeyRevoked.
+
+### Subprocess port dynamics
+
+implTestPort() uses the dynamic free-port allocator; V-9b wave wires 8 concurrent subprocess probes (each with its own ephemeral port + memmock). Full-suite runtime on this host ≈ 2min with no port collisions across the wave.
+
+### Trajectory refresh
+
+- **Today**: 147 pass / 0 fail / 11 skip (clean)
+- **+ BB-ext (L-50 impl ship)**: → 149 (SV-PERM-03/04)
+- **+ BE-ext**: → 150 (SV-PERM-14)
+- **+ BI-impl**: → 151 (SV-PERM-16)
+- **+ AE (full crash harness)**: → 152 (SV-STR-10)
+
+**M3 exit target: 152 / 0 / 6 / 0** (the 6 remaining skips: SV-BUD-03, SV-STR-04/11/16 = M4 retag; SV-MEM-08 = pre-budgeted cross-tenant; SV-SESS-06 = POSIX-only).
+
+---
+
 ## 2026-04-22 night (L-47/L-48/L-49 spec wave + HR-09/10 validator-local — 134 pass / 0 fail / 24 skip)
 
 **Scoreboard: 134 pass / 0 fail / 24 skip / 0 error (+2 from 132).** Clean. Three spec bundles + two validator-local greens absorbed in this pass. Nine V-9b SV-PERM Findings (BB..BJ) all closed spec-side; impl-ships pending.

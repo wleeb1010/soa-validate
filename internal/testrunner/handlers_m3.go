@@ -1130,7 +1130,7 @@ func handleSVSTR09(ctx context.Context, h HandlerCtx) []Evidence {
 // comes up; the CrashEvent observation layer on top needs impl side to
 // ship both emission + a post-relaunch event-read path.
 func handleSVSTR10(ctx context.Context, h HandlerCtx) []Evidence {
-	return streamPending(h, "SV-STR-10", "§14.2 CrashEvent emission + §14.5.5 Post-Crash Observation via Admin Scope. L-47 spec closed the observability half: /events/recent accepts `admin:read` as alternative auth, session_id optional, returns cross-session events in current process boot at 60 rpm with type=<enum> filter. **Finding AE (impl)**: still needs (a) CrashEvent emission callsite in boot-scan.ts resume-with-open-bracket path — payload {reason, workflow_state_id, last_committed_event_id, stack_hint}, AND (b) admin:read bearer minting surface so validator can authenticate the cross-session query. Validator probe (post-AE): kill subprocess mid-decision via crash-test marker, relaunch, mint admin:read bearer, GET /events/recent?type=CrashEvent, assert ≥1 event with the open-bracket session_id.")
+	return handleSVSTR10Real(ctx, h)
 }
 
 // SV-STR-11: CompactionDeferred on mid-ContentBlockDelta compaction.

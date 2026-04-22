@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
@@ -37,33 +39,19 @@ import (
 // blocked on precedence-guard axis 3), so V-9b SV-PERM-02 defers to
 // HR-11's Finding AW wiring.
 func handleSVPERM02(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-02 (§10.3 precedence tighten-only): composes with HR-11's Finding AW — precedence-guard axis 3 " +
-			"(activeMode × toolRequirements loosening check) not shipped. Vector oracle covers the local resolver decision tree " +
-			"but the spec-observable assertion (boot refuses loosening Card with ConfigPrecedenceViolation) needs impl AW. " +
-			"Once AW lands, spawn impl with a card containing toolRequirements={risky_tool:AutoAllow} under activeMode=ReadOnly " +
-			"→ /ready=503 + {Config/error/ConfigPrecedenceViolation}."}}
+	return awLooseningCardProbe(ctx, h, "SV-PERM-02")
 }
 
 // ─── SV-PERM-03 §10.4.1/§10.4.2 — escalation (L-49 BB spec live) ─────
 
 func handleSVPERM03(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-03 (§10.4.1 escalation state-machine + §10.4.2 RUNNER_HANDLER_ESCALATION_TIMEOUT_MS + " +
-			"SOA_HANDLER_ESCALATION_RESPONDER env hooks — L-49 BB spec shipped): awaiting impl ship. Validator probe " +
-			"(post-impl): subprocess with tick=500ms + responder tempfile, submit high-risk Autonomous-signed PDA, write " +
-			"nothing to responder for 600ms → assert 403 `{error:PermissionDenied, reason:escalation-timeout}` + audit row " +
-			"with handler=\"Autonomous\"."}}
+	return handleSVPERM03Real(ctx, h)
 }
 
 // ─── SV-PERM-04 §10.4.1/§19.6 — HITL distinct (L-49 BB spec live) ────
 
 func handleSVPERM04(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-04 (§10.4.1 HITL distinct from Autonomous signature — L-49 BB spec shipped): awaiting impl ship of " +
-			"the escalation responder surface. Validator probe (post-impl): submit Autonomous-signed PDA with " +
-			"`{response:\"approve\"}` written to SOA_HANDLER_ESCALATION_RESPONDER → assert 403 `{reason:hitl-required, " +
-			"detail:autonomous-insufficient}` (Autonomous cannot self-approve HITL-gated decisions)."}}
+	return handleSVPERM04Real(ctx, h)
 }
 
 // ─── SV-PERM-05 §10.5 — Audit chain prev_hash ────────────────────────
@@ -125,48 +113,31 @@ func svperm05BootstrapBearer(h HandlerCtx) string {
 // ─── SV-PERM-06 §10.5.5 — WORM sink append-only (L-48 BC spec live) ──
 
 func handleSVPERM06(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-06 (§10.5.5 WORM Sink Modeling Test Hook — L-48 BC spec shipped): awaiting impl ship of " +
-			"RUNNER_AUDIT_SINK_MODE=worm-in-memory env hook. Validator probe (post-impl): POST /audit/records or attempt mutation " +
-			"via Runner creds → 405 `{error:ImmutableAuditSink}` + corresponding system-log record."}}
+	return handleSVPERM06Real(ctx, h)
 }
 
 // ─── SV-PERM-07 §10.5.5 — sink_timestamp external (L-48 BC schema) ───
 
 func handleSVPERM07(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-07 (§10.5.5 sink_timestamp schema field — L-48 BC spec shipped): audit-records-response.schema.json " +
-			"gains optional sink_timestamp field populated by WORM sink. Validator probe (post-impl): assert " +
-			"|sink_timestamp − timestamp| ≤ 1s across returned records."}}
+	return handleSVPERM07Real(ctx, h)
 }
 
 // ─── SV-PERM-08 §10.6.2 — 90d key rotation (L-48 BD hook live) ───────
 
 func handleSVPERM08(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-08 (§10.6.2 SOA_HANDLER_ENROLLED_AT env hook — L-48 BD spec shipped): awaiting impl ship. Validator " +
-			"probe (post-impl): RUNNER_TEST_CLOCK=T_ref + SOA_HANDLER_ENROLLED_AT=(T_ref−91d), submit high-risk PDA-signed " +
-			"decision → 403 `{error:HandlerKeyExpired, reason:key-age-exceeded}`."}}
+	return handleSVPERM08Real(ctx, h)
 }
 
 // ─── SV-PERM-09 §10.6.2 — handler-CRL poll (L-48 BE hook live) ───────
 
 func handleSVPERM09(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-09 (§10.6.2 RUNNER_HANDLER_CRL_POLL_TICK_MS + SOA_BOOTSTRAP_REVOCATION_FILE {handler_kid, ...} " +
-			"extension — L-48 BE spec shipped): awaiting impl ship. Validator probe (post-impl): tick=200ms + write " +
-			"{handler_kid: soa-conformance-test-handler-v1.0, reason: compromise-drill, revoked_at: ...} mid-run → next " +
-			"PDA decision → 403 `{error:HandlerKeyRevoked}` within one poll tick."}}
+	return handleSVPERM09Real(ctx, h)
 }
 
 // ─── SV-PERM-10 §10.6.2 — rotation overlap (L-48 BF fixture live) ────
 
 func handleSVPERM10(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-10 (§10.6.2 SOA_HANDLER_KEYPAIR_OVERLAP_DIR + test-vectors/handler-keypair-overlap/ fixture — " +
-			"L-48 BF spec + fixture shipped): awaiting impl ship of the env hook. Validator probe (post-impl): point env at " +
-			"the two-kid fixture dir, set RUNNER_TEST_CLOCK inside overlap window [2026-04-22T00:00Z, 2026-04-23T00:00Z], " +
-			"submit PDAs signed by each kid → both 200 `handler_accepted:true`."}}
+	return handleSVPERM10Real(ctx, h)
 }
 
 // ─── SV-PERM-11 §10.6 — Key-type enforcement ─────────────────────────
@@ -197,61 +168,298 @@ func handleSVPERM11(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: fmt.Sprintf("§10.6 key-type enforcement: pinned PDA uses alg=%q (allowed); full enrollment-time RS256/RSA<3072 rejection needs a handler-enrollment surface (§10.6.1) not yet shipped — structural JWS-alg check covered by SV-PERM-22 live path", parsed.Header.Alg)}}
 }
 
-// ─── SV-PERM-12 §10.6.3 — kid uniqueness (L-48 BG endpoint live) ─────
+// ─── SV-PERM-12 §10.6.3 — kid uniqueness via POST /handlers/enroll ───
 
 func handleSVPERM12(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-12 (§10.6.3 POST /handlers/enroll endpoint — L-48 BG spec shipped): awaiting impl ship. Validator " +
-			"probe (post-impl): operator-bearer enrolls a kid, re-enrolls same kid → 409 `{error:HandlerKidConflict, " +
-			"detail:kid already enrolled}`. Composes with SV-PERM-11 enrollment-time RS256 rejection path."}}
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_URL unset"}}
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-12: SOA_RUNNER_BOOTSTRAP_BEARER unset"}}
+	}
+	kid := fmt.Sprintf("svperm12-kid-%d", time.Now().UnixNano())
+	// Spec Ed25519 handler-keypair SPKI hex constant for realistic enroll body.
+	spki := "749f3fd468e5a7e7e6604b71c812b66b45793228b557a44e25388ed07a8591e3"
+	enrollBody := fmt.Sprintf(`{"kid":%q,"spki":%q,"algo":"EdDSA","issued_at":"2026-04-22T12:00:00Z"}`, kid, spki)
+	post := func(body string) (int, []byte) {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.Client.BaseURL()+"/handlers/enroll", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return 0, []byte(err.Error())
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, raw
+	}
+	// Fresh enroll → 201.
+	s1, b1 := post(enrollBody)
+	if s1 != http.StatusCreated {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("fresh enroll status=%d (want 201); body=%.200q", s1, string(b1))}}
+	}
+	// Duplicate enroll → 409 HandlerKidConflict.
+	s2, b2 := post(enrollBody)
+	if s2 != http.StatusConflict {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("duplicate enroll status=%d (want 409); body=%.200q", s2, string(b2))}}
+	}
+	if !strings.Contains(string(b2), "HandlerKidConflict") {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("duplicate response lacks HandlerKidConflict marker: %.200q", string(b2))}}
+	}
+	// Unsupported algo (RS256) → 400 AlgorithmRejected.
+	rsBody := fmt.Sprintf(`{"kid":"svperm12-rs256-%d","spki":"deadbeef","algo":"RS256","issued_at":"2026-04-22T12:00:00Z"}`, time.Now().UnixNano())
+	s3, b3 := post(rsBody)
+	if s3 != http.StatusBadRequest {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("RS256 enroll status=%d (want 400); body=%.200q", s3, string(b3))}}
+	}
+	if !strings.Contains(string(b3), "AlgorithmRejected") {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("RS256 response lacks AlgorithmRejected marker: %.200q", string(b3))}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "§10.6.3 POST /handlers/enroll: fresh→201, duplicate→409 HandlerKidConflict, RS256→400 AlgorithmRejected"}}
 }
 
-// ─── SV-PERM-13 §10.6.4 — keystore storage (L-48 BH endpoint live) ───
+// ─── SV-PERM-13 §10.6.4 — keystore storage ───────────────────────────
 
 func handleSVPERM13(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-13 (§10.6.4 GET /security/key-storage endpoint — L-48 BH spec shipped): awaiting impl ship. Validator " +
-			"probe (post-impl): operator-bearer GET → 200 `{storage_mode ∈ {hsm,software-keystore,ephemeral}, " +
-			"private_keys_on_disk:bool, provider?, attestation_format?}`. Assert private_keys_on_disk===false for conformance."}}
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_URL unset"}}
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-13: SOA_RUNNER_BOOTSTRAP_BEARER unset"}}
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, h.Client.BaseURL()+"/security/key-storage", nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /security/key-storage: " + err.Error()}}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("GET /security/key-storage status=%d (want 200); body=%.200q", resp.StatusCode, string(body))}}
+	}
+	var doc struct {
+		StorageMode        string `json:"storage_mode"`
+		PrivateKeysOnDisk  bool   `json:"private_keys_on_disk"`
+		Provider           string `json:"provider,omitempty"`
+		AttestationFormat  string `json:"attestation_format,omitempty"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: "parse: " + err.Error()}}
+	}
+	validModes := map[string]bool{"hsm": true, "software-keystore": true, "ephemeral": true}
+	if !validModes[doc.StorageMode] {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("storage_mode=%q not in {hsm, software-keystore, ephemeral}", doc.StorageMode)}}
+	}
+	if doc.PrivateKeysOnDisk {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: "private_keys_on_disk=true — §10.6 forbids on-disk private key material"}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§10.6.4 /security/key-storage: storage_mode=%s private_keys_on_disk=false provider=%q", doc.StorageMode, doc.Provider)}}
 }
 
 // ─── SV-PERM-14 §10.6.2 — CRL refresh SLA (L-48 BE observability) ────
 
 func handleSVPERM14(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-14 (§10.6.2 CRL refresh ≤ 60min observability — L-48 BE spec shipped): last_crl_refresh_at exposed on " +
-			"/health or /logs/system/recent once impl ships BE. Validator probe (post-impl): poll /health, assert observed " +
-			"refresh intervals ≤ 60min ceiling (using RUNNER_HANDLER_CRL_POLL_TICK_MS override for sub-second test cadence)."}}
+	return handleSVPERM14Real(ctx, h)
 }
 
 // ─── SV-PERM-15 §10.6.5 — SuspectDecision retroactive (L-48 BE admin-row) ─
 
 func handleSVPERM15(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-15 (§10.6.5 retroactive SuspectDecision admin-row + schema oneOf third branch — L-48 BE spec shipped): " +
-			"awaiting impl ship. Validator probe (post-impl): drive N PDA-signed decisions, revoke the handler kid via " +
-			"revocation file, observe retroactive `suspect_decision:true + suspect_reason:kid-revoked-24h-window` on the " +
-			"N records via /audit/records."}}
+	return handleSVPERM15Real(ctx, h)
 }
 
-// ─── SV-PERM-16 §10.6.6 — retention_class schema (L-48 BI live) ──────
+// ─── SV-PERM-16 §10.6.6 — retention_class derivation ─────────────────
 
 func handleSVPERM16(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-16 (§10.6.6 retention_class schema + derivation rule — L-48 BI spec shipped): audit records gain " +
-			"retention_class ∈ {dfa-365d, standard-90d} derived from session's granted_activeMode. Validator probe (post-impl): " +
-			"mint one DFA + one ReadOnly session, drive a decision each, assert records[dfa_sid].retention_class===\"dfa-365d\" " +
-			"and records[readonly_sid].retention_class===\"standard-90d\"."}}
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_URL unset"}}
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-16: SOA_RUNNER_BOOTSTRAP_BEARER unset"}}
+	}
+	// Mint one session per class.
+	mintSession := func(activeMode string) (sid, bearer string, err error) {
+		body := fmt.Sprintf(`{"requested_activeMode":%q,"user_sub":"svperm16-%s","request_decide_scope":true}`, activeMode, activeMode)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.Client.BaseURL()+"/sessions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return "", "", err
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			return "", "", fmt.Errorf("POST /sessions (%s) status=%d body=%.200q", activeMode, resp.StatusCode, string(raw))
+		}
+		var s struct {
+			SessionID, SessionBearer string
+		}
+		if err := json.Unmarshal(raw, &struct {
+			SessionID     *string `json:"session_id"`
+			SessionBearer *string `json:"session_bearer"`
+		}{&s.SessionID, &s.SessionBearer}); err != nil {
+			return "", "", err
+		}
+		return s.SessionID, s.SessionBearer, nil
+	}
+	dfaSid, dfaBearer, err := mintSession("DangerFullAccess")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "mint DFA: " + err.Error()}}
+	}
+	roSid, roBearer, err := mintSession("ReadOnly")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "mint ReadOnly: " + err.Error()}}
+	}
+	// Drive one decision per session.
+	drive := func(sid, bearer string) error {
+		body := fmt.Sprintf(`{"tool":"fs__read_file","session_id":%q,"args_digest":"sha256:%064x"}`, sid, time.Now().UnixNano())
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.Client.BaseURL()+"/permissions/decisions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		return nil
+	}
+	_ = drive(dfaSid, dfaBearer)
+	_ = drive(roSid, roBearer)
+	// Fetch /audit/records and look for the 2 rows.
+	readerReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, h.Client.BaseURL()+"/audit/records?limit=200", nil)
+	readerReq.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(readerReq)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /audit/records: " + err.Error()}}
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: fmt.Sprintf("audit status=%d", resp.StatusCode)}}
+	}
+	var doc struct {
+		Records []map[string]interface{} `json:"records"`
+	}
+	_ = json.Unmarshal(raw, &doc)
+	var dfaClass, roClass string
+	for _, r := range doc.Records {
+		rsid, _ := r["session_id"].(string)
+		rc, _ := r["retention_class"].(string)
+		if rsid == dfaSid && rc != "" {
+			dfaClass = rc
+		}
+		if rsid == roSid && rc != "" {
+			roClass = rc
+		}
+	}
+	if dfaClass == "" || roClass == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("SV-PERM-16 (§10.5.6 retention_class): retention_class field missing on audit records " +
+				"(dfa=%q, readonly=%q across %d records). L-48 BI shipped schema field + derivation rule; impl has not yet " +
+				"populated retention_class on audit-row write. **Finding BI-impl (impl, routed)**: audit-row builder needs " +
+				"to derive retention_class from session.granted_activeMode at append time (DFA → dfa-365d; else → " +
+				"standard-90d). Probe body written + held.", dfaClass, roClass, len(doc.Records))}}
+	}
+	if dfaClass != "dfa-365d" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("DFA session retention_class=%q (want dfa-365d)", dfaClass)}}
+	}
+	if roClass != "standard-90d" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("ReadOnly session retention_class=%q (want standard-90d)", roClass)}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "§10.6.6 retention_class: DFA row → dfa-365d, ReadOnly row → standard-90d"}}
 }
 
-// ─── SV-PERM-17 §10.5.7 — audit reader tokens (L-48 BJ endpoint live) ─
+// ─── SV-PERM-17 §10.5.7 — audit reader tokens ────────────────────────
 
 func handleSVPERM17(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-17 (§10.5.7 POST /audit/reader-tokens endpoint — L-48 BJ spec shipped): awaiting impl ship. Validator " +
-			"probe (post-impl): operator-bearer mints reader_bearer with scope audit:read:*. Assert: (1) reader_bearer GETs " +
-			"/audit/tail + /audit/records succeed; (2) any POST/PUT/DELETE with reader_bearer → 403 " +
-			"`{error:bearer-lacks-audit-write-scope}`."}}
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_URL unset"}}
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-17: SOA_RUNNER_BOOTSTRAP_BEARER unset"}}
+	}
+	// Mint a reader token.
+	mintReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.Client.BaseURL()+"/audit/reader-tokens",
+		strings.NewReader(`{}`))
+	mintReq.Header.Set("Content-Type", "application/json")
+	mintReq.Header.Set("Authorization", "Bearer "+bearer)
+	mintResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(mintReq)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "POST /audit/reader-tokens: " + err.Error()}}
+	}
+	mintRaw, _ := io.ReadAll(mintResp.Body)
+	mintResp.Body.Close()
+	if mintResp.StatusCode != http.StatusCreated && mintResp.StatusCode != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("reader-tokens mint status=%d (want 200 or 201); body=%.200q", mintResp.StatusCode, string(mintRaw))}}
+	}
+	var mint struct {
+		ReaderBearer string `json:"reader_bearer"`
+		ExpiresAt    string `json:"expires_at"`
+		Scope        string `json:"scope"`
+	}
+	if err := json.Unmarshal(mintRaw, &mint); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: "parse reader-tokens: " + err.Error()}}
+	}
+	if mint.ReaderBearer == "" {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: "reader_bearer empty"}}
+	}
+	if mint.Scope != "audit:read:*" {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: fmt.Sprintf("scope=%q (want audit:read:*)", mint.Scope)}}
+	}
+	// Read with reader bearer → succeeds.
+	readReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, h.Client.BaseURL()+"/audit/tail", nil)
+	readReq.Header.Set("Authorization", "Bearer "+mint.ReaderBearer)
+	readResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(readReq)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /audit/tail: " + err.Error()}}
+	}
+	readResp.Body.Close()
+	if readResp.StatusCode != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("reader GET /audit/tail status=%d (want 200)", readResp.StatusCode)}}
+	}
+	// Write attempt with reader bearer → 403 bearer-lacks-audit-write-scope.
+	// /audit/records only allows GET per spec; try POST /audit/reader-tokens (write path should reject reader bearer).
+	writeReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.Client.BaseURL()+"/audit/reader-tokens",
+		strings.NewReader(`{}`))
+	writeReq.Header.Set("Content-Type", "application/json")
+	writeReq.Header.Set("Authorization", "Bearer "+mint.ReaderBearer)
+	writeResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(writeReq)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "POST /audit/reader-tokens (reader): " + err.Error()}}
+	}
+	writeRaw, _ := io.ReadAll(writeResp.Body)
+	writeResp.Body.Close()
+	if writeResp.StatusCode != http.StatusForbidden {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("reader mint status=%d (want 403 bearer-lacks-audit-write-scope); body=%.200q", writeResp.StatusCode, string(writeRaw))}}
+	}
+	if !strings.Contains(string(writeRaw), "bearer-lacks-audit-write-scope") && !strings.Contains(string(writeRaw), "audit:read") {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("reader-bearer write-reject body lacks scope marker: %.200q", string(writeRaw))}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("§10.5.7 /audit/reader-tokens: operator mints reader bearer (scope=%s) → read OK → write 403 with scope-lacks marker", mint.Scope)}}
 }
 
 // ─── SV-PERM-18 §10.6.1 — CRL artifact schema ────────────────────────

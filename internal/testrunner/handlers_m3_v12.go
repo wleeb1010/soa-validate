@@ -9,25 +9,124 @@ package testrunner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/sidiff"
+	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
 
-// ─── HR-07 §15.5 — Agent-type enforcement ────────────────────────────
+// ─── HR-07 §11.2 + §15.5 — agentType=explore cannot invoke Mutating ──
 
 func handleHR07(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "HR-07 (§11.2 + §15.5 agentType=explore cannot invoke Mutating): precedence-guard catches explore+activeMode>ReadOnly " +
-			"at Card layer (SV-CARD-10), but no runtime check at /permissions/decisions rejects a Mutating-class tool request " +
-			"from agentType=explore when activeMode=ReadOnly. **Finding AV (impl)**: decisions-route MUST add {error:PermissionDenied, " +
-			"reason:agent-type-insufficient} branch when (session.activeMode >= tool.risk_class) holds but session is bound to " +
-			"agentType=explore AND tool.risk_class > ReadOnly. Validator probe (post-AV): spawn impl with agentType=explore + " +
-			"activeMode=DangerFullAccess card, mint session (note: SV-CARD-10 precedence gate would fire here — need card with " +
-			"agentType=explore + activeMode=ReadOnly). Resolved: activeMode=ReadOnly so fs__read_file OK, but the test requires " +
-			"a Mutating tool attempt — which is already denied by the ReadOnly ceiling. The §11.2 rule is that agentType is a " +
-			"SEPARATE axis — reason must be agent-type-insufficient, not readonly-ceiling. This is an audit-reason-label gap more " +
-			"than a blocking behavior gap."}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "HR-07: SOA_IMPL_BIN unset"}}
+	}
+	cardPath, cleanup, err := writeExploreReadOnlyCard(h.Spec)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "writeExploreReadOnlyCard: " + err.Error()}}
+	}
+	defer cleanup()
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	bearer := "hr07-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                 strconv.Itoa(port),
+		"RUNNER_HOST":                 "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":        filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_PATH":            cardPath,
+		"RUNNER_TOOLS_FIXTURE":        filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":            "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER": bearer,
+	}
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 3 * time.Second})
+		// Mint a ReadOnly session (card's activeMode ceiling is ReadOnly, explore-type).
+		bootBody := `{"requested_activeMode":"ReadOnly","user_sub":"hr07-driver","request_decide_scope":true}`
+		bootReq, _ := http.NewRequestWithContext(probeCtx, http.MethodPost, client.BaseURL()+"/sessions", strings.NewReader(bootBody))
+		bootReq.Header.Set("Content-Type", "application/json")
+		bootReq.Header.Set("Authorization", "Bearer "+bearer)
+		bootResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(bootReq)
+		if err != nil {
+			return "HR-07 bootstrap: " + err.Error(), false
+		}
+		bootRaw, _ := io.ReadAll(bootResp.Body)
+		bootResp.Body.Close()
+		if bootResp.StatusCode != http.StatusCreated {
+			return fmt.Sprintf("HR-07 bootstrap status=%d body=%.200q", bootResp.StatusCode, string(bootRaw)), false
+		}
+		var boot struct{ SessionID, SessionBearer string }
+		_ = json.Unmarshal(bootRaw, &struct {
+			SessionID     *string `json:"session_id"`
+			SessionBearer *string `json:"session_bearer"`
+		}{&boot.SessionID, &boot.SessionBearer})
+		sid := boot.SessionID
+		sbearer := boot.SessionBearer
+		body := []byte(fmt.Sprintf(`{"tool":"fs__write_file","session_id":%q,"args_digest":"sha256:%064x"}`, sid, time.Now().UnixNano()))
+		req, _ := http.NewRequestWithContext(probeCtx, http.MethodPost, client.BaseURL()+"/permissions/decisions", strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+sbearer)
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return "HR-07 POST /permissions/decisions: " + err.Error(), false
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			return fmt.Sprintf("HR-07 status=%d (want 403 agent-type-insufficient); body=%.200q", resp.StatusCode, string(raw)), false
+		}
+		var dec struct {
+			Error, Reason string
+		}
+		_ = json.Unmarshal(raw, &dec)
+		if dec.Reason != "agent-type-insufficient" {
+			return fmt.Sprintf("HR-07 reason=%q (want agent-type-insufficient); body=%.200q", dec.Reason, string(raw)), false
+		}
+		return fmt.Sprintf("§11.2 + §15.5 HR-07 agent-type enforcement: agentType=explore + ReadOnly card → fs__write_file → 403 {reason:agent-type-insufficient}"), true
+	})
+	st := StatusFail
+	if pass {
+		st = StatusPass
+	}
+	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
+}
+
+// writeExploreReadOnlyCard builds a temp card with agentType=explore +
+// activeMode=ReadOnly (passes AN precedence-guard; allows Mutating-tool
+// runtime rejection path under AV).
+func writeExploreReadOnlyCard(spec specvec.Locator) (string, func(), error) {
+	raw, err := spec.Read(specvec.ConformanceCard)
+	if err != nil {
+		return "", func() {}, err
+	}
+	var card map[string]interface{}
+	if err := json.Unmarshal(raw, &card); err != nil {
+		return "", func() {}, err
+	}
+	card["agentType"] = "explore"
+	if perms, ok := card["permissions"].(map[string]interface{}); ok {
+		perms["activeMode"] = "ReadOnly"
+	}
+	out, _ := json.MarshalIndent(card, "", "  ")
+	dir, err := os.MkdirTemp("", "hr07-card-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	path := filepath.Join(dir, "agent-card.json")
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", func() {}, err
+	}
+	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // ─── HR-09 §9.3 — SI marker escape (validator-local) ─────────────────
@@ -127,15 +226,107 @@ func handleHR10(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: "§9.1 SI immutable task: validator-local diff-validator rejects tasks/* edits with ImmutableTargetEdit + accepts non-tasks in-span edits"}}
 }
 
-// ─── HR-11 §10.3 — Permission override tighten-only ──────────────────
+// ─── HR-11 §10.3 step 3 — toolRequirements tighten-only ──────────────
 
 func handleHR11(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "HR-11 (§10.3 step 3 toolRequirements tighten-only): impl precedence-guard.ts has axis 1 (agentType × activeMode) + " +
-			"axis 2 (AGENTS.md denylist × toolRequirements), but no axis 3 (activeMode × toolRequirements) enforcing tighten-only. " +
-			"A Card with activeMode=ReadOnly + toolRequirements={fs__write_file:AutoAllow} loosens — MUST raise ConfigPrecedenceViolation " +
-			"at boot. **Finding AW (impl)**: precedence-guard.ts gains axis 3 — for each toolRequirements entry, if the tool's " +
-			"risk_class exceeds the Card's activeMode (e.g., Mutating tool under ReadOnly activeMode), emit ConfigPrecedenceViolation " +
-			"with axis=\"activemode-tool-requirement\". Validator probe (post-AW): subprocess with crafted Card → /ready=503 + " +
-			"{Config/error/ConfigPrecedenceViolation}."}}
+	return awLooseningCardProbe(ctx, h, "HR-11")
+}
+
+// awLooseningCardProbe is shared by HR-11 + SV-PERM-02: build a card
+// whose toolRequirements maps a tool to a LOOSER control than its
+// registry default_control. Spawn impl → /ready=503 + Config log
+// record code=ConfigPrecedenceViolation.
+func awLooseningCardProbe(ctx context.Context, h HandlerCtx, testID string) []Evidence {
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: testID + ": SOA_IMPL_BIN unset"}}
+	}
+	cardPath, cleanup, err := writeLooseningCard(h.Spec)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "writeLooseningCard: " + err.Error()}}
+	}
+	defer cleanup()
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	bearer := strings.ToLower(testID) + "-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                 strconv.Itoa(port),
+		"RUNNER_HOST":                 "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":        filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_PATH":            cardPath,
+		"RUNNER_TOOLS_FIXTURE":        filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":            "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER": bearer,
+	}
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 3 * time.Second})
+		readyResp, err := client.Do(probeCtx, http.MethodGet, "/ready", nil)
+		if err != nil {
+			return testID + ": GET /ready: " + err.Error(), false
+		}
+		readyResp.Body.Close()
+		if readyResp.StatusCode != http.StatusServiceUnavailable {
+			return fmt.Sprintf("%s: /ready status=%d (want 503 — toolRequirements loosening should raise ConfigPrecedenceViolation)", testID, readyResp.StatusCode), false
+		}
+		url := fmt.Sprintf("%s/logs/system/recent?session_id=ses_runnerBootLifetime&category=Config&limit=50", client.BaseURL())
+		logReq, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
+		logReq.Header.Set("Authorization", "Bearer "+bearer)
+		logResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(logReq)
+		if err != nil {
+			return testID + ": GET /logs/system/recent: " + err.Error(), false
+		}
+		logRaw, _ := io.ReadAll(logResp.Body)
+		logResp.Body.Close()
+		if logResp.StatusCode != http.StatusOK {
+			return fmt.Sprintf("%s: /logs/system/recent status=%d; body=%.200q", testID, logResp.StatusCode, string(logRaw)), false
+		}
+		var parsed struct {
+			Records []struct {
+				Category, Level, Code string
+			} `json:"records"`
+		}
+		_ = json.Unmarshal(logRaw, &parsed)
+		for _, r := range parsed.Records {
+			if r.Category == "Config" && r.Level == "error" && r.Code == "ConfigPrecedenceViolation" {
+				return fmt.Sprintf("%s: /ready=503 + /logs/system/recent {Config/error/ConfigPrecedenceViolation} for toolRequirements loosening (§10.3 step 3 tighten-only)", testID), true
+			}
+		}
+		return fmt.Sprintf("%s: no ConfigPrecedenceViolation in %d Config records", testID, len(parsed.Records)), false
+	})
+	st := StatusFail
+	if pass {
+		st = StatusPass
+	}
+	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
+}
+
+// writeLooseningCard builds a card whose toolRequirements explicitly
+// maps a Mutating-class tool to AutoAllow under activeMode=ReadOnly —
+// a §10.3 step 3 loosening.
+func writeLooseningCard(spec specvec.Locator) (string, func(), error) {
+	raw, err := spec.Read(specvec.ConformanceCard)
+	if err != nil {
+		return "", func() {}, err
+	}
+	var card map[string]interface{}
+	if err := json.Unmarshal(raw, &card); err != nil {
+		return "", func() {}, err
+	}
+	if perms, ok := card["permissions"].(map[string]interface{}); ok {
+		perms["activeMode"] = "ReadOnly"
+		perms["toolRequirements"] = map[string]interface{}{
+			"fs__write_file": "AutoAllow",
+		}
+	}
+	out, _ := json.MarshalIndent(card, "", "  ")
+	dir, err := os.MkdirTemp("", "hr11-card-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	path := filepath.Join(dir, "agent-card.json")
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", func() {}, err
+	}
+	return path, func() { _ = os.RemoveAll(dir) }, nil
 }

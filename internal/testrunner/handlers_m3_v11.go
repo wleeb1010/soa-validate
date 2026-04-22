@@ -185,22 +185,8 @@ func handleSVAGENTS07(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
 }
 
-// ─── SV-AGENTS-08 §7.2/§6.2 — entrypoint matches Card ────────────────
-//
-// L-46 AZ (spec) shipped — all 4 card variants now declare
-// self_improvement.entrypoint_file="agent.py". BUT impl `start-runner.ts`
-// calls `validateAgentsMdBody(resolved)` WITHOUT threading the Card's
-// entrypoint_file through as `cardEntrypointFile`. The validator's
-// entrypoint-match gate (agents-md-validator.ts:248) is therefore never
-// reached, regardless of what the Card declares.
-//
-// **Finding BA (impl)**: start-runner.ts:245 call site must pass
-//   validateAgentsMdBody(resolved, {cardEntrypointFile: card.self_improvement?.entrypoint_file})
-// so the §7.2 #4 entrypoint-match gate actually runs.
+// ─── SV-AGENTS-08 §7.2/§6.2 — entrypoint match (BA shipped) ──────────
+
 func handleSVAGENTS08(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-AGENTS-08 (§7.2/§6.2 entrypoint match): L-46 AZ added self_improvement.entrypoint_file to card variants, " +
-			"but impl start-runner.ts:245 calls validateAgentsMdBody(resolved) without threading cardEntrypointFile through. " +
-			"Gate at agents-md-validator.ts:248 is never reached. " +
-			"**Finding BA (impl)**: pass {cardEntrypointFile: card.self_improvement?.entrypoint_file} to validateAgentsMdBody so §7.2#4 fires."}}
+	return agentsMdGrammarProbe(ctx, h, "SV-AGENTS-08", specvec.AgentsMDGrammarEntrypointMismatch, "AgentsMdInvalid", "entrypoint-mismatch")
 }
