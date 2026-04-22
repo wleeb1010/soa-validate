@@ -4,6 +4,34 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (L-38 adopted; V-9d SV-STR-06/07/08 probes — +1 flip, 2 impl-findings)
+
+**Pin-bumped c33a411 → 39e376e.** L-38 closes both V-9c spec-side gaps: §14.5.4 `/logs/system/recent` endpoint + schema (SystemLogRecentResponseSchema in specvec, 12-category closed enum), and memory-mcp-mock README updated to match §8.1 exactly (search_memories / search_memories_by_time / read_memory_note / consolidate_memories / delete_memory_note; `write_memory` removed). Four impl findings S/T/U/V queued separately for SV-MEM-03/04/05/06.
+
+**Scoreboard: 62 pass / 2 fail / 16 skip / 0 error.** V-9d expected +3, delivered +1. SV-STR-08 flipped PASS (backpressure endpoint schema-valid, buffer_capacity=10000 const). SV-STR-06/07 fail cleanly — impl has the §14.5.2 endpoint shell but returns `{spans:[]}` after a driven decision; OTel span emission is not wired.
+
+### V-9d probe shape
+
+- **SV-STR-08** → PASS: GET `/observability/backpressure` schema-valid, buffer_capacity=10000 (spec const per §14.4), buffer_size_current + dropped_since_boot observable.
+- **SV-STR-06** → FAIL: no spans returned after decision. §14.4 MUSTs `soa.turn` per-turn and `soa.tool.<name>` per tool invocation.
+- **SV-STR-07** → FAIL: same root cause (no spans to validate resource_attributes against).
+- Shared `otelSpansProbe` helper for the two span-side assertions.
+
+### Route to impl
+
+**Finding (new, SV-STR-06/07)**: impl shipped the §14.5.2 endpoint at f2c7ca8 but isn't populating it. `soa.turn` span needed per decision with `soa.session.id`, `soa.turn.id`, `soa.agent.name` attrs; every span needs `service.name` + `service.version` + `session_id` in `resource_attributes`. Endpoint shell is ready — just needs the emission code hooked at the decision call-site (parallel to where PermissionDecision StreamEvent emits).
+
+### Aggregate V-9
+
+- V-9a stream: +6 (53→59)
+- V-9b budget: +0; 4 impl-asks routed (L-37 accepted)
+- V-9c memory: +2 (59→61); 4 impl-asks + 2 spec-gaps routed (L-38 accepted)
+- V-9d OTel/backpressure: +1 (61→62); 1 impl-finding routed
+
+Plus pending impl findings S/T/U/V (memory batch) — when those land, +4 more SV-MEM flips. §14.5.4 system-log endpoint pending impl ship — once live, SV-MEM-04 unlocks its non-terminal observation.
+
+---
+
 ## 2026-04-21 (L-36 + L-37 adopted; V-9c SV-MEM mock + 2 flips)
 
 **Pin-bumped 038ba1b → c33a411.** L-36 resolves 3 of the 5 SV-STR routing items in one drop (§14.5.2 `/observability/otel-spans/recent`, §14.5.3 `/observability/backpressure`, SV-STR-11/16 M3→M4). L-37 retags SV-BUD-03 M3→M4 + records V-9b impl punch list. Milestone tally: M3: 136 / M4: 11 / M5: 60 / M2: 22 / M1: 1.

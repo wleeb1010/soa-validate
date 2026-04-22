@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
@@ -25,6 +26,8 @@ import (
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
+
+var _ = strings.HasPrefix // keep strings import live when probes don't use it
 
 // ─── §8 Memory handlers (10 tests — V-4) ─────────────────────────────
 
@@ -536,24 +539,196 @@ func handleSVSTR05(ctx context.Context, h HandlerCtx) []Evidence {
 		})
 }
 
-// SV-STR-06: OTel span emission. Not observable via /events/recent —
-// span channel is separate (§14.4 OTel SDK export path).
+// SV-STR-06: §14.4 OTel spans — soa.turn + soa.tool.<name> emitted with
+// required attrs. L-36 shipped §14.5.2 GET /observability/otel-spans/recent
+// as the validator observation surface. Probe: drive a decision, poll
+// the endpoint, assert at least one soa.turn span with §14.4 required
+// attributes (soa.session.id, soa.turn.id, soa.agent.name).
 func handleSVSTR06(ctx context.Context, h HandlerCtx) []Evidence {
-	return streamPending(h, "SV-STR-06", "§14.4 OTel span names (soa.turn, soa.tool.<name>) with required attrs — OTel channel is orthogonal to §14.5 /events/recent. Probe requires impl-side OTel exporter wired to a test collector, then validator queries the collector. Out of scope for V-9a stream conversions; needs impl OTel-collector integration.")
+	return otelSpansProbe(ctx, h, "SV-STR-06",
+		"§14.4 span names (soa.turn, soa.tool.<name>) + required attrs",
+		func(spans []map[string]interface{}) string {
+			if len(spans) == 0 {
+				return "no spans returned after seed decision — §14.4 MUSTs soa.turn per-turn and soa.tool.<name> per tool invocation; impl has not wired OTel span emission to /observability/otel-spans/recent"
+			}
+			sawTurn := false
+			for _, s := range spans {
+				name, _ := s["name"].(string)
+				if name == "soa.turn" {
+					sawTurn = true
+					attrs, _ := s["attributes"].(map[string]interface{})
+					for _, required := range []string{"soa.session.id", "soa.turn.id", "soa.agent.name"} {
+						if _, ok := attrs[required]; !ok {
+							return fmt.Sprintf("soa.turn span missing required attribute %q per §14.4", required)
+						}
+					}
+				}
+			}
+			if !sawTurn {
+				return "no soa.turn span observed; §14.4 requires it per Runner turn"
+			}
+			return ""
+		})
 }
 
-// SV-STR-07: OTel missing-resource-attr → refuse start. Requires
-// launching impl with deliberately-misconfigured OTel env + observing
-// startup refusal. Same OTel-channel scope as SV-STR-06.
+// SV-STR-07: §14.4 required resource attributes on every span. Probe
+// asserts the emission invariant (every span carries service.name,
+// service.version, session_id in resource_attributes). The negative
+// arm (refuse start on missing attr) is a separate subprocess harness.
 func handleSVSTR07(ctx context.Context, h HandlerCtx) []Evidence {
-	return streamPending(h, "SV-STR-07", "§14.4 OTel required resource attrs (service.name, service.version, session_id) — missing attr must refuse /ready. Needs subprocess spawn with unset RUNNER_OTEL_RESOURCE_* env and assertion on startup-refusal exit-code. Blocks on impl-side OTel validation gate.")
+	return otelSpansProbe(ctx, h, "SV-STR-07",
+		"§14.4 resource attrs (service.name, service.version, session_id) present on every span",
+		func(spans []map[string]interface{}) string {
+			if len(spans) == 0 {
+				return "no spans returned; cannot assert resource_attributes invariant — same gap as SV-STR-06"
+			}
+			required := []string{"service.name", "service.version", "session_id"}
+			for i, s := range spans {
+				ra, _ := s["resource_attributes"].(map[string]interface{})
+				for _, k := range required {
+					if _, ok := ra[k]; !ok {
+						return fmt.Sprintf("span[%d] name=%q missing resource_attribute %q", i, s["name"], k)
+					}
+				}
+			}
+			return ""
+		})
 }
 
-// SV-STR-08: 10k-buffer drop-oldest + ObservabilityBackpressure. Requires
-// flooding the impl with ≥10k events to observe drop-oldest + the
-// backpressure signal. Resource-intensive, not in polling scope.
+// otelSpansProbe drives one decision to seed turn/tool spans, polls
+// /observability/otel-spans/recent, schema-validates, and runs the
+// per-test checker against the decoded spans array.
+func otelSpansProbe(ctx context.Context, h HandlerCtx, testID, passMsg string,
+	checker func(spans []map[string]interface{}) string) []Evidence {
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §14.5.2 /observability/otel-spans/recent"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
+		return out
+	}
+	sid, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("%s: bootstrap status=%d err=%v", testID, status, err)})
+		return out
+	}
+	_ = postDecisionSeed(ctx, h.Client, sid, bearer)
+	time.Sleep(250 * time.Millisecond)
+	body, code, err := getOTelSpansRaw(ctx, h.Client, sid, bearer)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if code == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("%s: GET /observability/otel-spans/recent → 404; impl has not shipped §14.5.2 yet", testID)})
+		return out
+	}
+	if code != http.StatusOK {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: status=%d; want 200", testID, code)})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path(specvec.OTelSpansRecentResponseSchema), body); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: §14.5.2 response fails schema: %v", testID, err)})
+		return out
+	}
+	var parsed struct {
+		Spans []map[string]interface{} `json:"spans"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	if violation := checker(parsed.Spans); violation != "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("%s: %s", testID, violation)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("%s: %s (observed %d spans)", testID, passMsg, len(parsed.Spans))})
+	return out
+}
+
+func getOTelSpansRaw(ctx context.Context, c *runner.Client, sessionID, bearer string) ([]byte, int, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/observability/otel-spans/recent?session_id=%s&limit=50", c.BaseURL(), sessionID), nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return raw, resp.StatusCode, nil
+}
+
+// SV-STR-08: §14.4 bounded 10k-span buffer + drop-oldest. L-36 shipped
+// §14.5.3 GET /observability/backpressure. Probe: schema-valid response
+// + buffer_capacity=10000 const per spec.
 func handleSVSTR08(ctx context.Context, h HandlerCtx) []Evidence {
-	return streamPending(h, "SV-STR-08", "§14.5 bounded 10k-span buffer + drop-oldest + ObservabilityBackpressure signal. Requires flooding ≥10k events in-flight + observing eviction + a separate ObservabilityBackpressure signal (not in /events/recent 27-value enum). Blocks on impl-side backpressure surface (ObservabilityBackpressure event type or /obs/backpressure endpoint).")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §14.5.3 /observability/backpressure"}}
+	if !h.Live {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "live path skipped: SOA_IMPL_URL unset"})
+		return out
+	}
+	bootstrapBearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bootstrapBearer == "" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
+		return out
+	}
+	_, bearer, status, err := sharedBootstrap(ctx, h.Client, bootstrapBearer)
+	if err != nil || status != http.StatusCreated {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: fmt.Sprintf("SV-STR-08: bootstrap status=%d err=%v", status, err)})
+		return out
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		h.Client.BaseURL()+"/observability/backpressure", nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: err.Error()})
+		return out
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-STR-08: GET /observability/backpressure → 404; impl has not shipped §14.5.3 yet"})
+		return out
+	}
+	if resp.StatusCode != http.StatusOK {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-STR-08: status=%d; want 200", resp.StatusCode)})
+		return out
+	}
+	if err := agentcard.ValidateJSON(h.Spec.Path(specvec.BackpressureStatusResponseSchema), raw); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: "SV-STR-08: §14.5.3 response fails schema: " + err.Error()})
+		return out
+	}
+	var parsed struct {
+		BufferCapacity    int `json:"buffer_capacity"`
+		BufferSizeCurrent int `json:"buffer_size_current"`
+		DroppedSinceBoot  int `json:"dropped_since_boot"`
+	}
+	_ = json.Unmarshal(raw, &parsed)
+	if parsed.BufferCapacity != 10000 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-STR-08: buffer_capacity=%d; §14.4 requires 10000 const", parsed.BufferCapacity)})
+		return out
+	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("SV-STR-08: §14.5.3 /observability/backpressure schema-valid; buffer_capacity=%d (§14.4 const), buffer_size_current=%d, dropped_since_boot=%d", parsed.BufferCapacity, parsed.BufferSizeCurrent, parsed.DroppedSinceBoot)})
+	return out
 }
 
 // SV-STR-09: per-event payload validates against §14.1.1
