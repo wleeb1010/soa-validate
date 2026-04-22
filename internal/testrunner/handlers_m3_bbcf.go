@@ -10,7 +10,13 @@ package testrunner
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wleeb1010/soa-validate/internal/jcs"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
@@ -53,14 +60,54 @@ func bbcfBaseEnv(specRoot string, port int, bearer string) map[string]string {
 // kid pathway.
 func _handleSVPERM03Stub(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-03 (§10.4.1 escalation-timeout): L-50 BB-ext spec shipped — §10.6.3 POST /handlers/enroll now " +
-			"REQUIRES role ∈ {Interactive, Coordinator, Autonomous}. Awaiting impl ship. Validator probe path (post-impl): " +
-			"enroll a fresh Autonomous kid via /handlers/enroll → sign triggering PDA with that kid → POST /permissions/" +
-			"decisions against Mutating tool → 500ms silence → 403 escalation-timeout + audit row handler=Autonomous."}}
+		Message: "SV-PERM-03 (§10.4.1 escalation-timeout): stub reserved"}}
 }
 
+// L-50 BB-ext surface is live but PDA-verify path can't resolve
+// dynamically-enrolled kids. Impl start-runner.ts:1359
+// resolvePdaVerifyKey hard-matches only the default kid
+// "soa-conformance-test-handler-v1.0"; validator-enrolled Autonomous
+// kids → verifyPda(handler-key-unknown) → 201 Deny(pda-verify-failed)
+// before the §10.4.1 escalation path is reached.
+//
+// **Finding BB-ext-2 (impl)**: resolvePdaVerifyKey MUST consult
+// handlerKeyRegistry for dynamically-enrolled kids — derive Ed25519
+// pubkey bytes from the enrolled `spki` DER-SHA256 is not reversible;
+// instead, enrollment payload should accept `spki_der` (base64url of
+// full DER SubjectPublicKeyInfo) or `pubkey_b64` (raw pubkey bytes)
+// and registry returns that for verifyPda key resolution.
 func handleSVPERM03Real(ctx context.Context, h HandlerCtx) []Evidence {
-	return _handleSVPERM03Stub(ctx, h)
+	return []Evidence{{Path: PathLive, Status: StatusSkip,
+		Message: "SV-PERM-03 (§10.4.1 escalation-timeout): L-50 BB-ext role enrollment works, but impl " +
+			"start-runner.ts:1359 resolvePdaVerifyKey hard-matches only the default conformance kid; dynamically-enrolled " +
+			"Autonomous kids → verifyPda(handler-key-unknown) → 201 Deny(pda-verify-failed) before §10.4.1 fires. " +
+			"**Finding BB-ext-2 (impl)**: enrollment payload needs to carry the raw pubkey (not just DER-SHA256 digest) so " +
+			"resolvePdaVerifyKey can construct a verification key for dynamically-enrolled kids. Probe body written + held."}}
+}
+
+//nolint:unused // reserved for BB-ext-2 impl ship
+func _handleSVPERM03Probe2(ctx context.Context, h HandlerCtx) []Evidence {
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-03: SOA_IMPL_BIN unset"}}
+	}
+	responderFile, cleanup := mustTempFile("svperm03-responder-*.jsonl")
+	defer cleanup()
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	bearer := "svperm03-test-bearer"
+	env := bbcfBaseEnv(specRoot, port, bearer)
+	env["RUNNER_HANDLER_ESCALATION_TIMEOUT_MS"] = "500"
+	env["SOA_HANDLER_ESCALATION_RESPONDER"] = responderFile
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		return autonomousPdaProbe(probeCtx, h, port, bearer, "svperm03-autonomous-kid", "",
+			http.StatusForbidden, "escalation-timeout", "")
+	})
+	st := StatusFail
+	if pass {
+		st = StatusPass
+	}
+	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
 }
 
 func _handleSVPERM03Probe(ctx context.Context, h HandlerCtx) []Evidence {
@@ -110,9 +157,141 @@ func _handleSVPERM03Probe(ctx context.Context, h HandlerCtx) []Evidence {
 // Same Autonomous-kid gap as SV-PERM-03. See Finding BB-ext.
 func handleSVPERM04Real(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-04 (§10.4.1 HITL distinct from Autonomous): L-50 BB-ext spec shipped — POST /handlers/enroll now " +
-			"requires role. Awaiting impl ship. Validator probe path (post-impl): enroll Autonomous kid → sign PDA → write " +
-			"{response:approve} to SOA_HANDLER_ESCALATION_RESPONDER → 403 hitl-required(autonomous-insufficient)."}}
+		Message: "SV-PERM-04 (§10.4.1 HITL distinct): composes with SV-PERM-03 Finding BB-ext-2 — dynamically-enrolled " +
+			"kids can't resolve for PDA verify. Probe body written + held."}}
+}
+
+// autonomousPdaProbe:
+//   1. Bootstraps a DFA+decide session.
+//   2. Enrolls `autoKid` as role=Autonomous, sharing SPKI with the
+//      conformance handler-keypair so the existing private key signs.
+//   3. Mints a PDA with header.kid + payload.handler_kid = autoKid, signs
+//      over JCS(payload) using the handler-keypair private key.
+//   4. Submits to /permissions/decisions targeting a Mutating tool.
+//   5. Asserts response matches (wantStatus, wantReason [, wantDetailContains]).
+func autonomousPdaProbe(
+	ctx context.Context, h HandlerCtx, port int, bearer, autoKid, _unused string,
+	wantStatus int, wantReason, wantDetailContains string,
+) (string, bool) {
+	client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 8 * time.Second})
+	sid, sbearer, status, err := m2Bootstrap(ctx, client, bearer)
+	if err != nil || status != http.StatusCreated {
+		return fmt.Sprintf("bootstrap status=%d err=%v", status, err), false
+	}
+	privKey, pubKey, err := readHandlerEd25519PrivKey(h.Spec)
+	if err != nil {
+		return "load handler privkey: " + err.Error(), false
+	}
+	// SPKI-DER-SHA256 hex for enroll.
+	spkiHex := ed25519SpkiSha256Hex(pubKey)
+	enrollBody := fmt.Sprintf(`{"kid":%q,"spki":%q,"algo":"EdDSA","issued_at":"2026-04-22T12:00:00Z","role":"Autonomous"}`, autoKid, spkiHex)
+	enrollReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, client.BaseURL()+"/handlers/enroll", strings.NewReader(enrollBody))
+	enrollReq.Header.Set("Content-Type", "application/json")
+	enrollReq.Header.Set("Authorization", "Bearer "+bearer)
+	enrollResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(enrollReq)
+	if err != nil {
+		return "enroll: " + err.Error(), false
+	}
+	enrollRaw, _ := io.ReadAll(enrollResp.Body)
+	enrollResp.Body.Close()
+	if enrollResp.StatusCode != http.StatusCreated {
+		return fmt.Sprintf("enroll status=%d; body=%.200q", enrollResp.StatusCode, string(enrollRaw)), false
+	}
+	argsDigest := fmt.Sprintf("sha256:%064x", time.Now().UnixNano())
+	pda, err := mintPDA(privKey, autoKid, sid, "fs__write_file", argsDigest)
+	if err != nil {
+		return "mint PDA: " + err.Error(), false
+	}
+	body := fmt.Sprintf(`{"tool":"fs__write_file","session_id":%q,"args_digest":%q,"pda":%q}`, sid, argsDigest, pda)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, client.BaseURL()+"/permissions/decisions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+sbearer)
+	resp, err := (&http.Client{Timeout: 8 * time.Second}).Do(req)
+	if err != nil {
+		return "POST /permissions/decisions: " + err.Error(), false
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != wantStatus {
+		return fmt.Sprintf("status=%d (want %d); body=%.300q", resp.StatusCode, wantStatus, string(raw)), false
+	}
+	var dec struct {
+		Error, Reason, Detail string
+	}
+	_ = json.Unmarshal(raw, &dec)
+	if wantReason != "" && dec.Reason != wantReason {
+		return fmt.Sprintf("reason=%q (want %q); body=%.300q", dec.Reason, wantReason, string(raw)), false
+	}
+	if wantDetailContains != "" && !strings.Contains(strings.ToLower(dec.Detail), strings.ToLower(wantDetailContains)) {
+		return fmt.Sprintf("detail=%q missing %q marker; body=%.300q", dec.Detail, wantDetailContains, string(raw)), false
+	}
+	return fmt.Sprintf("§10.4.1: enrolled Autonomous kid %s + minted fresh PDA → %d %s", autoKid, resp.StatusCode, dec.Reason), true
+}
+
+func readHandlerEd25519PrivKey(spec specvec.Locator) (ed25519.PrivateKey, ed25519.PublicKey, error) {
+	raw, err := spec.Read("test-vectors/handler-keypair/private.pem")
+	if err != nil {
+		return nil, nil, err
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return nil, nil, fmt.Errorf("pem decode: no block")
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse PKCS8: %w", err)
+	}
+	priv, ok := key.(ed25519.PrivateKey)
+	if !ok {
+		return nil, nil, fmt.Errorf("not an ed25519 key: %T", key)
+	}
+	pub := priv.Public().(ed25519.PublicKey)
+	return priv, pub, nil
+}
+
+// ed25519SpkiSha256Hex wraps raw Ed25519 pubkey in SubjectPublicKeyInfo
+// DER, hashes with SHA-256, returns lowercase hex.
+func ed25519SpkiSha256Hex(pub ed25519.PublicKey) string {
+	// Ed25519 SPKI DER = 12-byte prefix + 32-byte pubkey.
+	//   30 2a 30 05 06 03 2b 65 70 03 21 00
+	der := make([]byte, 0, 44)
+	der = append(der, 0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00)
+	der = append(der, pub...)
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:])
+}
+
+func mintPDA(priv ed25519.PrivateKey, kid, sessionID, tool, argsDigest string) (string, error) {
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	payload := map[string]interface{}{
+		"prompt_id":   fmt.Sprintf("prm_%d", time.Now().UnixNano()),
+		"nonce":       fmt.Sprintf("nonce-%d", time.Now().UnixNano()),
+		"decision":    "approve",
+		"user_sub":    "m2-validator",
+		"tool":        tool,
+		"args_digest": argsDigest,
+		"capability":  "WorkspaceWrite",
+		"control":     "Prompt",
+		"handler_kid": kid,
+		"session_id":  sessionID,
+		"decided_at":  nowISO,
+	}
+	payloadJCS, err := jcs.Canonicalize(payload)
+	if err != nil {
+		return "", err
+	}
+	header := map[string]interface{}{
+		"alg": "EdDSA",
+		"kid": kid,
+		"typ": "soa-pda+jws",
+	}
+	headerJSON, _ := json.Marshal(header)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJCS)
+	signingInput := []byte(headerB64 + "." + payloadB64)
+	sig := ed25519.Sign(priv, signingInput)
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+	return headerB64 + "." + payloadB64 + "." + sigB64, nil
 }
 
 func _handleSVPERM04Probe(ctx context.Context, h HandlerCtx) []Evidence {
@@ -429,12 +608,41 @@ func handleSVPERM09Real(ctx context.Context, h HandlerCtx) []Evidence {
 // (or a periodic `crl-refresh-complete` record on /logs/system/recent
 // under boot session), so SV-PERM-14's ≤ 60min SLA can be observed.
 // Probe body written; just needs the observability surface.
+// L-50 BE-ext shipped: CRL poller runs unconditionally + emits
+// crl-refresh-complete on every tick; boot fires one synchronous tick.
 func handleSVPERM14Real(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-14 (§10.6.2 CRL refresh ≤ 60min SLA observability): AQ+BE shipped poll-tick + revocation-file " +
-			"watcher, but no observability surface publishes last_crl_refresh_at on /health nor writes crl-refresh-complete " +
-			"records to /logs/system/recent. **Finding BE-ext (impl, routed)**: expose either surface so validator can audit " +
-			"refresh cadence under the ≤ 60min ceiling. Probe body written + held."}}
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SOA_IMPL_URL unset"}}
+	}
+	bearer := os.Getenv("SOA_RUNNER_BOOTSTRAP_BEARER")
+	if bearer == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-14: SOA_RUNNER_BOOTSTRAP_BEARER unset"}}
+	}
+	url := fmt.Sprintf("%s/logs/system/recent?session_id=ses_runnerBootLifetime&limit=100", h.Client.BaseURL())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /logs/system/recent: " + err.Error()}}
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return []Evidence{{Path: PathLive, Status: StatusFail, Message: fmt.Sprintf("status=%d", resp.StatusCode)}}
+	}
+	var parsed struct {
+		Records []map[string]interface{} `json:"records"`
+	}
+	_ = json.Unmarshal(raw, &parsed)
+	for _, r := range parsed.Records {
+		code, _ := r["code"].(string)
+		if strings.Contains(code, "crl-refresh") {
+			return []Evidence{{Path: PathLive, Status: StatusPass,
+				Message: fmt.Sprintf("§10.6.2 SV-PERM-14 (BE-ext): /logs/system/recent has crl-refresh-complete record — impl ships unconditional CRL poller, boot tick fires synchronously so row is visible at /ready=200")}}
+		}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusFail,
+		Message: fmt.Sprintf("no crl-refresh record across %d boot-session logs", len(parsed.Records))}}
 }
 
 func _handleSVPERM14Probe(ctx context.Context, h HandlerCtx) []Evidence {

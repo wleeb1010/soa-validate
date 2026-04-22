@@ -181,7 +181,7 @@ func handleSVPERM12(ctx context.Context, h HandlerCtx) []Evidence {
 	kid := fmt.Sprintf("svperm12-kid-%d", time.Now().UnixNano())
 	// Spec Ed25519 handler-keypair SPKI hex constant for realistic enroll body.
 	spki := "749f3fd468e5a7e7e6604b71c812b66b45793228b557a44e25388ed07a8591e3"
-	enrollBody := fmt.Sprintf(`{"kid":%q,"spki":%q,"algo":"EdDSA","issued_at":"2026-04-22T12:00:00Z"}`, kid, spki)
+	enrollBody := fmt.Sprintf(`{"kid":%q,"spki":%q,"algo":"EdDSA","issued_at":"2026-04-22T12:00:00Z","role":"Interactive"}`, kid, spki)
 	post := func(body string) (int, []byte) {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.Client.BaseURL()+"/handlers/enroll", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -211,7 +211,7 @@ func handleSVPERM12(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: fmt.Sprintf("duplicate response lacks HandlerKidConflict marker: %.200q", string(b2))}}
 	}
 	// Unsupported algo (RS256) → 400 AlgorithmRejected.
-	rsBody := fmt.Sprintf(`{"kid":"svperm12-rs256-%d","spki":"deadbeef","algo":"RS256","issued_at":"2026-04-22T12:00:00Z"}`, time.Now().UnixNano())
+	rsBody := fmt.Sprintf(`{"kid":"svperm12-rs256-%d","spki":"deadbeef","algo":"RS256","issued_at":"2026-04-22T12:00:00Z","role":"Interactive"}`, time.Now().UnixNano())
 	s3, b3 := post(rsBody)
 	if s3 != http.StatusBadRequest {
 		return []Evidence{{Path: PathLive, Status: StatusFail,
@@ -369,11 +369,13 @@ func handleSVPERM16(ctx context.Context, h HandlerCtx) []Evidence {
 	}
 	if dfaClass == "" || roClass == "" {
 		return []Evidence{{Path: PathLive, Status: StatusSkip,
-			Message: fmt.Sprintf("SV-PERM-16 (§10.5.6 retention_class): retention_class field missing on audit records " +
-				"(dfa=%q, readonly=%q across %d records). L-48 BI shipped schema field + derivation rule; impl has not yet " +
-				"populated retention_class on audit-row write. **Finding BI-impl (impl, routed)**: audit-row builder needs " +
-				"to derive retention_class from session.granted_activeMode at append time (DFA → dfa-365d; else → " +
-				"standard-90d). Probe body written + held.", dfaClass, roClass, len(doc.Records))}}
+			Message: fmt.Sprintf("SV-PERM-16 (§10.5.6 retention_class): retention_class still missing on /audit/records " +
+				"(dfa=%q, readonly=%q across %d records). Impl claims BI-impl landed (\"all five audit append sites in " +
+				"decisions-route covered\") but empirical /audit/records response omits the field on DFA + ReadOnly " +
+				"permission decision rows. **Finding BI-impl-ext (impl)**: either (a) the field is populated in-memory " +
+				"but dropped by the /audit/records response serializer, or (b) only ResidencyCheck admin-rows get the " +
+				"stamp — validator needs retention_class on ALL decision rows (DFA and ReadOnly sessions) to audit the " +
+				"§10.5.6 derivation rule. Probe body written + held.", dfaClass, roClass, len(doc.Records))}}
 	}
 	if dfaClass != "dfa-365d" {
 		return []Evidence{{Path: PathLive, Status: StatusFail,

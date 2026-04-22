@@ -276,7 +276,9 @@ func handleSVBUD05(ctx context.Context, h HandlerCtx) []Evidence {
 	// matches our newly-minted sid AND it carries the tag.
 	auditSeen := false
 	var after string
-	for page := 0; page < 20; page++ {
+	// Chain grows ~50–100 rows per full suite run; bump pagination depth
+	// to 80 pages × 100 rows = 8000 rows ceiling before giving up.
+	for page := 0; page < 80; page++ {
 		u := h.Client.BaseURL() + "/audit/records?limit=100"
 		if after != "" {
 			u += "&after=" + after

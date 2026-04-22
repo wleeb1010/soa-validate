@@ -4,6 +4,42 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (L-50 pin + BE-ext live + BB-ext-2 routed — 148 pass / 0 fail / 10 skip)
+
+**Scoreboard: 148 pass / 0 fail / 10 skip / 0 error (+1 from 147). Ceiling now 151 pending 3 remaining impl findings.**
+
+Pin: 782735c → `5d30545`; manifest `4cbd08b7dd422474090573c96c8c6673fd16d655fd878d11d910a80ed0e5c3a8` byte-verified. L-50 ships BB-ext (POST /handlers/enroll `role` field required) + BE-ext impl (unconditional CRL poller + `crl-refresh-complete` system-log rows) + BI-impl impl (retention_class on audit rows).
+
+### Flipped (+1)
+
+| Test | Finding | Mechanism |
+|---|---|---|
+| **SV-PERM-14** | BE-ext | Impl AQ+BE now run CRL poller unconditionally; every tick writes `crl-refresh-complete` to `/logs/system/recent`. Boot fires one synchronous tick → record visible the moment `/ready=200`. Probe: GET `/logs/system/recent?session_id=ses_runnerBootLifetime` → assert ≥1 record with code containing `crl-refresh`. |
+
+### Impl side-effects of L-50
+
+- **SV-PERM-12 (BG)**: L-50 made `role` field REQUIRED on POST /handlers/enroll. My probe body enrolled without role → 400 RoleRejected. Added `"role":"Interactive"` to both positive + negative enroll bodies. Flip restored.
+- **SV-BUD-05 (AB)**: audit chain grew past 2000 rows over accumulated full-suite runs; probe pagination ceiling (20 pages × 100 rows) no longer reaches current session's row. Bumped to 80 pages × 100 rows ceiling (~8000 rows). Flip restored.
+
+### Routed (3 remaining impl-side gaps)
+
+| Test | Finding | Gap |
+|---|---|---|
+| **SV-PERM-03/04** | **BB-ext-2 (impl, new)** | L-50 spec + role enrollment work, but impl `start-runner.ts:1359` `resolvePdaVerifyKey` hard-matches only `"soa-conformance-test-handler-v1.0"`; dynamically-enrolled Autonomous kids → `verifyPda(handler-key-unknown)` → 201 Deny(pda-verify-failed) before §10.4.1 fires. Enrollment payload needs to carry raw pubkey (not just DER-SHA256) so the resolver can construct a verification key for freshly-enrolled kids. Probe body written with Ed25519 privkey load + SPKI-DER-SHA256 hex derivation + canonical-decision JCS + JWS mint — all pre-stage validated; held pending impl fix. |
+| **SV-PERM-16** | **BI-impl-ext (impl)** | L-50 ships `retention_class` on audit rows per impl claim ("all five audit append sites in decisions-route covered"), but empirically `retention_class` absent on `/audit/records` response for both DFA + ReadOnly decision rows. Either serializer drops the field or stamp is limited to ResidencyCheck admin-rows only. |
+| SV-STR-10 | AE (full crash harness) | Deferred — composition-heavy probe pending future iteration. |
+
+### Trajectory refresh
+
+- **Today**: 148 pass / 0 fail / 10 skip (clean)
+- **+ BB-ext-2 (impl ship)**: → 150 (SV-PERM-03/04)
+- **+ BI-impl-ext**: → 151 (SV-PERM-16)
+- **+ AE (full crash harness)**: → 152 (SV-STR-10)
+
+**M3 exit target 151–152 / 0 / 6 / 0** with the 6 legit deferrals remaining.
+
+---
+
 ## 2026-04-22 night (V-9b/V-10/V-11/V-12 live wire-up wave — 147 pass / 0 fail / 11 skip) 🎯
 
 **Scoreboard: 147 pass / 0 fail / 11 skip / 0 error (+13 from 134).** Clean. M3 ceiling 152 with 3 new impl findings + AE remaining.
