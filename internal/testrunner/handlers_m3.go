@@ -226,13 +226,16 @@ func handleSVSTROBS01(ctx context.Context, h HandlerCtx) []Evidence {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SOA_RUNNER_BOOTSTRAP_BEARER unset"})
 		return out
 	}
-	_, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
+	sid, bearer, status, err := m2Bootstrap(ctx, h.Client, bootstrapBearer)
 	if err != nil || status != http.StatusCreated {
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("bootstrap for /events/recent probe failed: status=%d err=%v", status, err)})
 		return out
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, h.Client.BaseURL()+"/events/recent?limit=50", nil)
+	// §14.5 /events/recent requires session_id query param per start-runner
+	// banner + stream/events-recent-route.ts.
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/events/recent?session_id=%s&limit=50", h.Client.BaseURL(), sid), nil)
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
 	if err != nil {
