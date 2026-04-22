@@ -14,7 +14,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/agentcard"
@@ -45,16 +47,16 @@ func handleSVBUD01(ctx context.Context, h HandlerCtx) []Evidence {
 	}, "§13 projection algorithm: safety_factor=1.15, cold_start_baseline_active=true, cumulative=0 at session-start")
 }
 func handleSVBUD02(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-02", "§13 pre-call halt — projection predicts exhaustion → refuse decision. Needs T-4.")
+	return budgetPending(h, "SV-BUD-02", "§13 pre-call halt — projection predicts exhaustion → refuse decision. **Finding K**: impl's BudgetTracker.recordTurn() has zero callers in src; /permissions/decisions doesn't invoke it. Cumulative accounting never advances, so budget exhaustion cannot be driven externally. Impl T-4 wired the tracker class but not its invocation path.")
 }
 func handleSVBUD03(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on BudgetExhausted. Needs T-4 + T-2 (/events/recent).")
+	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on BudgetExhausted. **Finding K**: same recordTurn-zero-callers gap as SV-BUD-02; mid-stream cancel requires budget to actually exhaust.")
 }
 func handleSVBUD04(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-04", "§13 cache_accounting fields populated after real turns. Needs T-4.")
+	return budgetPending(h, "SV-BUD-04", "§13 cache_accounting fields populated after real turns. **Finding K**: recordTurn has zero callers; cache_accounting stays unpopulated in the cold-start body. Spec requires observable turn accounting path.")
 }
 func handleSVBUD05(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-05", "§13 billing_tag propagation. Needs T-4.")
+	return budgetPending(h, "SV-BUD-05", "§13 billing_tag propagation through audit records. **Finding K**: no turn-recording path; billing_tag never flows from a turn into audit. Needs impl to wire recordTurn at a real turn boundary OR ship an observable test-hook endpoint.")
 }
 // SV-BUD-06: §13 StopReason closed enum — /budget/projection exposes
 // `stop_reason_if_exhausted` as a const "BudgetExhausted" per schema.
@@ -71,7 +73,7 @@ func handleSVBUD06(ctx context.Context, h HandlerCtx) []Evidence {
 	}, "§13 StopReason closed enum: /budget/projection.stop_reason_if_exhausted=\"BudgetExhausted\"")
 }
 func handleSVBUD07(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-07", "§13 BillingTagMismatch detected via /budget/projection. Needs T-4.")
+	return budgetPending(h, "SV-BUD-07", "§13 BillingTagMismatch detected via /budget/projection. **Finding K**: no recordTurn invocation path; impossible to surface a mismatch event in the absence of turn accounting.")
 }
 
 // SV-BUD-PROJ-01: schema validity on GET /budget/projection/<session_id>.
@@ -267,8 +269,126 @@ func handleSVREG02(ctx context.Context, h HandlerCtx) []Evidence {
 	}, "§11 MCP name pattern: all registered tools follow category__tool or mcp__category__tool shape")
 }
 
+// SV-REG-03: §11.3 per-session tool-pool pinning. Spawn impl subprocess
+// with SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION=<triggerfile>; mint session
+// S1; note S1's tool_pool_hash (H1); write new tool to trigger file; wait
+// for watcher poll; assert /tools/registered.registry_version advanced AND
+// S1's tool_pool_hash is STILL H1 (§11.3 — per-session hashes are snapshot
+// at POST /sessions time and never mutate mid-session).
 func handleSVREG03(ctx context.Context, h HandlerCtx) []Evidence {
-	return registryPending(h, "SV-REG-03", "§11.3.1 tool pool pinned per session; SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION hook per L-34. Needs validator-side trigger-file helper.")
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "live-only — §11.3 subprocess with SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION hook"}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+			Message: "SV-REG-03: SOA_IMPL_BIN unset; cannot spawn subprocess with §11.3.1 dynamic-reg hook"})
+		return out
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	tmp, err := os.MkdirTemp("", "sv-reg-03-*")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "mkdir temp: " + err.Error()})
+		return out
+	}
+	defer os.RemoveAll(tmp)
+	triggerPath := filepath.Join(tmp, "dyn-reg-trigger.json")
+	if err := os.WriteFile(triggerPath, []byte("[]"), 0644); err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError, Message: "seed trigger: " + err.Error()})
+		return out
+	}
+
+	port := implTestPort()
+	bearer := "svreg03-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                         strconv.Itoa(port),
+		"RUNNER_HOST":                         "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":                filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":                 filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":                filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":                    "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":         bearer,
+		"SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION": triggerPath,
+	}
+
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 2 * time.Second})
+		sid, sbearer, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap failed: status=%d err=%v", status, err), false
+		}
+		// Baseline: read /sessions/<sid>/state AND /tools/registered
+		state1, code1, _ := getSessionStateRaw(probeCtx, client, sid, sbearer)
+		if code1 != http.StatusOK {
+			return fmt.Sprintf("baseline /state status=%d", code1), false
+		}
+		var st1 struct {
+			ToolPoolHash string `json:"tool_pool_hash"`
+		}
+		if err := json.Unmarshal(state1, &st1); err != nil {
+			return "baseline /state parse: " + err.Error(), false
+		}
+		reg1, regCode1, _ := getToolsRegisteredRaw(probeCtx, client, sbearer)
+		if regCode1 != http.StatusOK {
+			return fmt.Sprintf("baseline /tools/registered status=%d", regCode1), false
+		}
+		var r1 struct {
+			Tools           []map[string]interface{} `json:"tools"`
+			RegistryVersion string                   `json:"registry_version"`
+		}
+		if err := json.Unmarshal(reg1, &r1); err != nil {
+			return "baseline /tools/registered parse: " + err.Error(), false
+		}
+		// Write new tool to trigger. Use a unique name so repeat runs don't collide.
+		newTool := fmt.Sprintf(
+			`[{"name":"mcp__dyn__svreg03_%d","risk_class":"ReadOnly","default_control":"AutoAllow","idempotency_retention_seconds":3600}]`,
+			time.Now().UnixNano())
+		if err := os.WriteFile(triggerPath, []byte(newTool), 0644); err != nil {
+			return "write trigger: " + err.Error(), false
+		}
+		// Wait for watcher to poll (impl default 250ms) + settle.
+		time.Sleep(1500 * time.Millisecond)
+
+		// Post-trigger: /tools/registered advanced; session /state unchanged.
+		reg2, regCode2, _ := getToolsRegisteredRaw(probeCtx, client, sbearer)
+		if regCode2 != http.StatusOK {
+			return fmt.Sprintf("post-trigger /tools/registered status=%d", regCode2), false
+		}
+		var r2 struct {
+			Tools           []map[string]interface{} `json:"tools"`
+			RegistryVersion string                   `json:"registry_version"`
+		}
+		if err := json.Unmarshal(reg2, &r2); err != nil {
+			return "post-trigger /tools/registered parse: " + err.Error(), false
+		}
+		if r1.RegistryVersion == r2.RegistryVersion {
+			return fmt.Sprintf("registry_version unchanged (%s); §11.3.1 requires global-registry advance on dynamic add. Watcher may not have polled; wait extended, trigger file=%s", r1.RegistryVersion, triggerPath), false
+		}
+		if len(r2.Tools) != len(r1.Tools)+1 {
+			return fmt.Sprintf("tool count %d → %d; want +1 after dynamic add", len(r1.Tools), len(r2.Tools)), false
+		}
+		// Session's pool hash MUST still match baseline (§11.3 per-session pinning).
+		state2, code2, _ := getSessionStateRaw(probeCtx, client, sid, sbearer)
+		if code2 != http.StatusOK {
+			return fmt.Sprintf("post-trigger /state status=%d", code2), false
+		}
+		var st2 struct {
+			ToolPoolHash string `json:"tool_pool_hash"`
+		}
+		if err := json.Unmarshal(state2, &st2); err != nil {
+			return "post-trigger /state parse: " + err.Error(), false
+		}
+		if st1.ToolPoolHash != st2.ToolPoolHash {
+			return fmt.Sprintf("session tool_pool_hash advanced (%s → %s) on dynamic-add; §11.3 requires per-session pinning — mid-session pool hashes MUST NOT mutate", st1.ToolPoolHash, st2.ToolPoolHash), false
+		}
+		return fmt.Sprintf("SV-REG-03: dynamic add via §11.3.1 trigger flipped global registry_version (%s → %s) while in-flight session tool_pool_hash stayed pinned at %s per §11.3",
+			r1.RegistryVersion, r2.RegistryVersion, st1.ToolPoolHash), true
+	})
+	if pass {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass, Message: msg})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail, Message: "SV-REG-03: " + msg})
+	}
+	return out
 }
 func handleSVREG04(ctx context.Context, h HandlerCtx) []Evidence {
 	return registryPending(h, "SV-REG-04", "§11 deny-list from AGENTS.md. Needs AGENTS.md deny-list fixture.")
