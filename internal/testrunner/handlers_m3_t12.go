@@ -39,6 +39,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wleeb1010/soa-validate/internal/memmock"
 	"github.com/wleeb1010/soa-validate/internal/runner"
 	"github.com/wleeb1010/soa-validate/internal/specvec"
 )
@@ -556,16 +557,133 @@ func handleSVPRIV01(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: fmt.Sprintf("§10.7 #1 data inventory: %d-byte body declares §10.7 + data_class tagging + Retention category mapping", len(body))}}
 }
 
-// ─── SV-PRIV-02 §10.7 — sensitive-personal block ─────────────────────
-
+// ─── SV-PRIV-02 §10.7 — sensitive-personal block (Finding AG live) ───
+//
+// Impl a07124b ships AG: bootstrap memory prefetch partitions notes,
+// drops sensitive-personal entries before recordLoad, and emits one
+// System Event Log record per dropped note (category=Error, level=error,
+// code=MemoryDeletionForbidden, data={reason:sensitive-class-forbidden,
+// note_id}). Probe: validator's memmock returns a corpus with exactly
+// one sensitive-personal note; spawn impl; mint session; poll
+// /logs/system/recent?category=Error for the record.
 func handleSVPRIV02(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PRIV-02 (§10.7 #2 sensitive-personal block): impl recordLoad throws MemoryDeletionForbidden in state-store.ts:152 " +
-			"but sessions-route.ts:455 catch falls into a console.warn-only branch for non-MemoryTimeout errors — the throw is silently " +
-			"swallowed and the session bootstrap returns 201 with no observable surface. " +
-			"**Finding AG**: catch MemoryDeletionForbidden in sessions-route.ts and (a) emit a /logs/system/recent record " +
-			"(category=MemoryDegraded, level=warn, code=sensitive-class-forbidden) and/or (b) stream a SessionEnd event " +
-			"with stop_reason=SensitiveClassRefused. Validator probe: seed memmock with a sensitive-personal note + observe."}}
+	corpusPath, corpusCleanup, err := writeSensitivePersonalCorpus()
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError, Message: "writeSensitivePersonalCorpus: " + err.Error()}}
+	}
+	defer corpusCleanup()
+	bin, args, env, _, port, cleanup, skip := memProbeEnvWithCorpus(h, corpusPath)
+	defer cleanup()
+	if skip != "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PRIV-02: " + skip}}
+	}
+	bearer := env["SOA_RUNNER_BOOTSTRAP_BEARER"]
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 5 * time.Second})
+		sid, sbearer, status, err := m2Bootstrap(probeCtx, client, bearer)
+		if err != nil || status != http.StatusCreated {
+			return fmt.Sprintf("bootstrap status=%d err=%v", status, err), false
+		}
+		// Allow the impl to flush its system-log emission.
+		time.Sleep(400 * time.Millisecond)
+		body, code, err := getSystemLogRecentRaw(probeCtx, client, sid, sbearer, "Error")
+		if err != nil {
+			return "GET /logs/system/recent: " + err.Error(), false
+		}
+		if code != http.StatusOK {
+			return fmt.Sprintf("/logs/system/recent status=%d (want 200)", code), false
+		}
+		var parsed struct {
+			Records []struct {
+				Category string                 `json:"category"`
+				Level    string                 `json:"level"`
+				Code     string                 `json:"code"`
+				Data     map[string]interface{} `json:"data"`
+			} `json:"records"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return "parse /logs/system/recent: " + err.Error(), false
+		}
+		matched := 0
+		for _, r := range parsed.Records {
+			if r.Category == "Error" && r.Level == "error" && r.Code == "MemoryDeletionForbidden" {
+				if reason, _ := r.Data["reason"].(string); reason == "sensitive-class-forbidden" {
+					matched++
+				}
+			}
+		}
+		if matched < 1 {
+			return fmt.Sprintf("no {category=Error, level=error, code=MemoryDeletionForbidden, data.reason=sensitive-class-forbidden} record in /logs/system/recent (got %d records)", len(parsed.Records)), false
+		}
+		return fmt.Sprintf("§10.7 #2 sensitive-personal block (Finding AG): memmock returned 1 sensitive-personal note; impl partitioned + dropped it + emitted %d MemoryDeletionForbidden record(s)", matched), true
+	})
+	st := StatusFail
+	if pass {
+		st = StatusPass
+	}
+	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
+}
+
+// memProbeEnvWithCorpus is memProbeEnv with a caller-supplied corpus path
+// instead of the default pinned memory-mcp-mock seed.
+func memProbeEnvWithCorpus(h HandlerCtx, corpusPath string) (string, []string, map[string]string, interface{}, int, func(), string) {
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return "", nil, nil, nil, 0, func() {}, "SOA_IMPL_BIN unset; subprocess spawn required"
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	m, err := memmock.New(memmock.Options{CorpusPath: corpusPath, TimeoutAfterNCalls: -1})
+	if err != nil {
+		return "", nil, nil, nil, 0, func() {}, "memmock.New: " + err.Error()
+	}
+	if err := m.Start(); err != nil {
+		return "", nil, nil, nil, 0, func() {}, "memmock.Start: " + err.Error()
+	}
+	port := implTestPort()
+	bearer := "svpriv02-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                    strconv.Itoa(port),
+		"RUNNER_HOST":                    "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":           filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":            filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":           filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":               "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":    bearer,
+		"SOA_RUNNER_MEMORY_MCP_ENDPOINT": m.URL(),
+	}
+	return bin, args, env, m, port, func() { m.Stop() }, ""
+}
+
+// writeSensitivePersonalCorpus writes a 1-note corpus file where the
+// single note has data_class=sensitive-personal. Used by SV-PRIV-02
+// to trigger the Finding AG sensitive-class-forbidden partition.
+func writeSensitivePersonalCorpus() (string, func(), error) {
+	doc := map[string]interface{}{
+		"schema":      "https://soa-harness.org/schemas/v1.0/memory-corpus-seed.json",
+		"description": "SV-PRIV-02 corpus: one sensitive-personal note to trigger Finding AG partition.",
+		"version":     "1.0",
+		"notes": []map[string]interface{}{{
+			"note_id":          "svpriv02_sensitive_0001",
+			"summary":          "User health record — sensitive-personal tagged per §10.7 #2",
+			"data_class":       "sensitive-personal",
+			"recency_days_ago": 1,
+			"graph_strength":   0.9,
+		}},
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", func() {}, err
+	}
+	dir, err := os.MkdirTemp("", "svpriv02-corpus-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	path := filepath.Join(dir, "corpus-seed.json")
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", func() {}, err
+	}
+	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // ─── SV-PRIV-03 §10.7.1 — subject delete + export ────────────────────
@@ -680,43 +798,96 @@ func handleSVPRIV03(ctx context.Context, h HandlerCtx) []Evidence {
 	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
 }
 
-// ─── SV-PRIV-04 §10.7.3 — retention sweep ────────────────────────────
-
+// ─── SV-PRIV-04 §10.7.3 — retention sweep (Finding AH live, AO block) ─
+//
+// Impl b6f5187 ships AH: RUNNER_RETENTION_SWEEP_TICK_MS + RUNNER_RETENTION_SWEEP_INTERVAL_MS
+// env hooks let validator drive a sub-second sweep. Sweep emits a
+// system-log record (category=ContextLoad, code=retention-sweep-ran,
+// session_id=ses_runner_boot_____).
+//
+// Probe tries the env-driven subprocess pattern first. Observability
+// currently gated: /logs/system/recent requires session_id filter +
+// sessionStore.exists check + bearer match. Boot session isn't
+// registered in sessionStore → bootstrap-bearer caller gets 404.
+// Probe pings the endpoint for the boot session_id; if 404, emits
+// Finding AO (impl) with the sharp diagnostic.
 func handleSVPRIV04(ctx context.Context, h HandlerCtx) []Evidence {
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-PRIV-04: SOA_IMPL_BIN unset; subprocess spawn required"}}
+	}
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	bearer := "svpriv04-test-bearer"
+	env := map[string]string{
+		"RUNNER_PORT":                          strconv.Itoa(port),
+		"RUNNER_HOST":                          "127.0.0.1",
+		"RUNNER_INITIAL_TRUST":                 filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
+		"RUNNER_CARD_FIXTURE":                  filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
+		"RUNNER_TOOLS_FIXTURE":                 filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_DEMO_MODE":                     "1",
+		"SOA_RUNNER_BOOTSTRAP_BEARER":          bearer,
+		"RUNNER_RETENTION_SWEEP_TICK_MS":       "200",
+		"RUNNER_RETENTION_SWEEP_INTERVAL_MS":   "500",
+	}
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		client := runner.New(runner.Config{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", port), Timeout: 5 * time.Second})
+		// Wait for at least one sweep tick (interval=500ms + buffer).
+		time.Sleep(1200 * time.Millisecond)
+		// Try direct boot-session query with bootstrap bearer.
+		url := fmt.Sprintf("%s/logs/system/recent?session_id=ses_runner_boot_____&category=ContextLoad&limit=50", client.BaseURL())
+		req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		resp, err := (&http.Client{Timeout: 4 * time.Second}).Do(req)
+		if err != nil {
+			return "GET /logs/system/recent: " + err.Error(), false
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return "boot session ses_runner_boot_____ not registered in sessionStore; /logs/system/recent 404s — Finding AO", false
+		}
+		if resp.StatusCode == http.StatusForbidden {
+			return "boot session bearer-mismatch; /logs/system/recent 403 — Finding AO", false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Sprintf("/logs/system/recent status=%d body=%.200q", resp.StatusCode, string(body)), false
+		}
+		var parsed struct {
+			Records []struct {
+				Category string `json:"category"`
+				Code     string `json:"code"`
+			} `json:"records"`
+		}
+		_ = json.Unmarshal(body, &parsed)
+		for _, r := range parsed.Records {
+			if r.Code == "retention-sweep-ran" && r.Category == "ContextLoad" {
+				return fmt.Sprintf("§10.7.3 retention sweep (Finding AH): RUNNER_RETENTION_SWEEP_{TICK,INTERVAL}_MS env hooks drove a sub-second sweep; /logs/system/recent has %d retention-sweep-ran record(s)", len(parsed.Records)), true
+			}
+		}
+		return fmt.Sprintf("no retention-sweep-ran record in %d logs", len(parsed.Records)), false
+	})
+	if pass {
+		return []Evidence{{Path: PathLive, Status: StatusPass, Message: msg}}
+	}
 	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PRIV-04 (§10.7.3 24h retention sweep): RetentionSweepScheduler defaults to intervalMs=24h + tickIntervalMs=5min " +
-			"with no env override (start-runner.ts:612 wires only systemLog+clock+log). Validator can't drive a sweep observation. " +
-			"**Finding AH**: accept RUNNER_RETENTION_TICK_MS + RUNNER_RETENTION_INTERVAL_MS env hooks (production-guard pattern, " +
-			"mirrors RUNNER_CONSOLIDATION_TICK_MS / _ELAPSED_MS in §8.4.1 + Finding AC). Validator probe: spawn impl with " +
-			"tick=100ms + interval=500ms, wait ~1s, observe a retention-sweep-ran record on /logs/system/recent."}}
+		Message: "SV-PRIV-04: " + msg + " — retention-sweep-ran log is pinned to boot session_id=ses_runner_boot_____, " +
+			"unreachable via /logs/system/recent because boot session isn't in sessionStore. " +
+			"**Finding AO (impl)**: either (a) register runner-boot session in sessionStore with the bootstrap bearer, " +
+			"or (b) emit retention-sweep-ran under any live session_id, or (c) add an admin-bearer path on /logs/system/recent."}}
 }
 
-// ─── SV-PRIV-05 §10.7.2 — residency layered defence ──────────────────
+// ─── SV-PRIV-05 §10.7.2 — residency layered defence (Finding AK live) ─
 //
-// L-41 spec ships Finding AI: `security.data_residency: array<ISO 3166-1
-// alpha-2>` declared in spec `schemas/agent-card.schema.json`. Impl
-// pinned to L-41 (f4b006a) but did NOT regenerate vendored schemas —
-// `packages/schemas/dist/schemas/vendored/agent-card.schema.json` still
-// has additionalProperties=false without `data_residency`, so cardPlugin
-// rejects any card asserting it: "card fails agent-card.schema.json
-// (/security must NOT have additional properties)". **Finding AK
-// (impl)**: re-run `node scripts/build-validators.mjs` (or `pnpm -w
-// build`) to regenerate vendored validators from the L-41 spec commit.
-// Probe body kept inline; flips skip → pass once vendored schema lands.
+// L-41 spec + L-42 pin + impl e714da2 (AK) regenerates vendored schemas
+// so `security.data_residency` is now accepted by cardPlugin. Probe
+// spawns impl with a temp card carrying `data_residency=["US"]`; impl's
+// residency-guard with empty toolResidencyLookup default denies every
+// decision with sub_reason=unknown-region per §10.7.2. L-41's audit-
+// records-response.schema.json oneOf discriminator (AJ) permits the
+// ResidencyCheck admin-row shape.
 func handleSVPRIV05(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PRIV-05 (§10.7.2 layered defence): L-41 spec adds security.data_residency but impl's vendored " +
-			"agent-card.schema.json (packages/schemas/dist/schemas/vendored/agent-card.schema.json — last touched Apr 20) " +
-			"was not regenerated after the L-41 pin bump. cardPlugin rejects: '/security must NOT have additional properties'. " +
-			"**Finding AK (impl)**: re-run `node scripts/build-validators.mjs` after pin bump to refresh vendored validators."}}
-}
-
-// _writeResidencyCardSubprocess — kept as the live probe body for when
-// Finding AK lands. After impl regens the vendored schemas, swap the
-// stub above for this body and SV-PRIV-05 flips skip → pass.
-//
-//nolint:unused
-func _writeResidencyCardSubprocess(ctx context.Context, h HandlerCtx) []Evidence {
 	bin, args, ok := parseImplBin()
 	if !ok {
 		return []Evidence{{Path: PathLive, Status: StatusSkip,
@@ -788,7 +959,10 @@ func _writeResidencyCardSubprocess(ctx context.Context, h HandlerCtx) []Evidence
 			return fmt.Sprintf("residency.decision=%q (want deny)", dec.Residency.Decision), false
 		}
 		// Confirm audit row: GET /audit/records and look for ResidencyCheck.
-		auditURL := fmt.Sprintf("%s/audit/records?after=&limit=100", client.BaseURL())
+		// Omit `after=` — empty-string `after=` returns 0 records on some
+		// impl paths (genesis-after interpretation). Caller starts from
+		// the genesis tail when `after` is absent.
+		auditURL := fmt.Sprintf("%s/audit/records?limit=100", client.BaseURL())
 		auditReq, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, auditURL, nil)
 		auditReq.Header.Set("Authorization", "Bearer "+sbearer)
 		auditResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(auditReq)

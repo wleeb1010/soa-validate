@@ -4,6 +4,46 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (Findings AG/AH/AK land — +2 flips → 100 pass / 1 fail / 8 skip)
+
+**Scoreboard: 100 pass / 1 fail / 8 skip / 0 error (+2 from 98).** 💯
+
+Impl shipped AK (`e714da2` vendored-schema regen), AG (`a07124b` MemoryDeletionForbidden system-log emit), AH (`b6f5187` RUNNER_RETENTION_SWEEP_{TICK,INTERVAL}_MS env hooks). Validator-side outcomes:
+
+### Flipped (2)
+
+| Test | Finding | Probe |
+|---|---|---|
+| **SV-PRIV-02** | AG | Tempfile corpus `{notes:[{data_class:"sensitive-personal", note_id:"svpriv02_sensitive_0001", ...}]}` seeded into validator memmock. Subprocess impl partitions the note, emits `{category:"Error", level:"error", code:"MemoryDeletionForbidden", data:{reason:"sensitive-class-forbidden", note_id}}` on `/logs/system/recent`. Probe mints session, asserts ≥1 such record. |
+| **SV-PRIV-05** | AK | Subprocess impl with temp card carrying `security.data_residency=["US"]` now loads cleanly (vendored schema regen shipped). Drives one decision against `fs__read_file`; impl's empty `toolResidencyLookup` default → `unknown-region` → 403 PermissionDenied. ResidencyCheck admin-row written to `/audit/records` (L-41 AJ discriminator permits it). |
+
+### Still skip / fail
+
+| Test | Status | Root cause |
+|---|---|---|
+| **SV-CARD-10** | fail | **Finding AN (impl)** — spawned subprocess with precedence-violation card returns `/ready 200`; §10.3 three-axis gate not wired at bootstrap. |
+| **SV-PRIV-04** | skip | **Finding AO (impl)** — AH env hooks shipped; retention-sweep-ran records written under session_id=`ses_runner_boot_____` which isn't registered in sessionStore → `/logs/system/recent` 404s for bootstrap-bearer callers. Needs boot-session registration, or sweep records to attach to any live session_id, or an admin-bearer path. |
+
+### Diagnostic calibrations
+
+- **SV-PRIV-05 /audit/records query**: empty `after=` string param returned 0 records on fresh chain. Dropped the parameter — omitting `after` starts from genesis. ResidencyCheck row visible after fix.
+- **Validator memmock gets a new helper**: `memProbeEnvWithCorpus(h, path)` lets SV-PRIV-02 supply a custom corpus (tempfile `writeSensitivePersonalCorpus()`) — tested alongside the pinned seed corpus used by SV-MEM-*.
+
+### Trajectory refresh
+
+- **Today**: 100 pass / 1 fail (crossed the 100 mark during the Finding wave)
+- **+ AE (CrashEvent, impl pending)**: → 101 (SV-STR-10)
+- **+ AN (SV-CARD-10 precedence gate, impl pending)**: → 102
+- **+ AO (retention-sweep observability, impl pending)**: → 103 (SV-PRIV-04)
+- **+ V-9c SV-BOOT-02..07** (6): → ~109
+- **+ V-10 policy** (16) → ~125 (crosses ≥120)
+- **+ V-11 + V-12 + V-9e** (14): → ~139
+- **+ V-9b SV-PERM** (21, closer): → ~160
+
+Moving to V-9c SV-BOOT-02..07 next.
+
+---
+
 ## 2026-04-22 night (L-42 pin + SV-SIGN real crypto — +2 flips → 98 pass / 1 fail / 10 skip)
 
 **Scoreboard: 98 pass / 1 fail / 10 skip / 0 error (+2 from 96).**
