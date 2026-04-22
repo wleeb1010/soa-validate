@@ -63,30 +63,11 @@ func _handleSVPERM03Stub(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: "SV-PERM-03 (§10.4.1 escalation-timeout): stub reserved"}}
 }
 
-// L-50 BB-ext surface is live but PDA-verify path can't resolve
-// dynamically-enrolled kids. Impl start-runner.ts:1359
-// resolvePdaVerifyKey hard-matches only the default kid
-// "soa-conformance-test-handler-v1.0"; validator-enrolled Autonomous
-// kids → verifyPda(handler-key-unknown) → 201 Deny(pda-verify-failed)
-// before the §10.4.1 escalation path is reached.
-//
-// **Finding BB-ext-2 (impl)**: resolvePdaVerifyKey MUST consult
-// handlerKeyRegistry for dynamically-enrolled kids — derive Ed25519
-// pubkey bytes from the enrolled `spki` DER-SHA256 is not reversible;
-// instead, enrollment payload should accept `spki_der` (base64url of
-// full DER SubjectPublicKeyInfo) or `pubkey_b64` (raw pubkey bytes)
-// and registry returns that for verifyPda key resolution.
+// L-50 BB-ext-2 live: resolvePdaVerifyKey now consults enrollment
+// registry's stored DER SPKI to construct verification keys for
+// dynamically-enrolled kids. Autonomous kids enrolled at runtime
+// verify cleanly, so §10.4.1 escalation state-machine fires.
 func handleSVPERM03Real(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-03 (§10.4.1 escalation-timeout): L-50 BB-ext role enrollment works, but impl " +
-			"start-runner.ts:1359 resolvePdaVerifyKey hard-matches only the default conformance kid; dynamically-enrolled " +
-			"Autonomous kids → verifyPda(handler-key-unknown) → 201 Deny(pda-verify-failed) before §10.4.1 fires. " +
-			"**Finding BB-ext-2 (impl)**: enrollment payload needs to carry the raw pubkey (not just DER-SHA256 digest) so " +
-			"resolvePdaVerifyKey can construct a verification key for dynamically-enrolled kids. Probe body written + held."}}
-}
-
-//nolint:unused // reserved for BB-ext-2 impl ship
-func _handleSVPERM03Probe2(ctx context.Context, h HandlerCtx) []Evidence {
 	bin, args, ok := parseImplBin()
 	if !ok {
 		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-03: SOA_IMPL_BIN unset"}}
@@ -156,9 +137,29 @@ func _handleSVPERM03Probe(ctx context.Context, h HandlerCtx) []Evidence {
 //
 // Same Autonomous-kid gap as SV-PERM-03. See Finding BB-ext.
 func handleSVPERM04Real(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-PERM-04 (§10.4.1 HITL distinct): composes with SV-PERM-03 Finding BB-ext-2 — dynamically-enrolled " +
-			"kids can't resolve for PDA verify. Probe body written + held."}}
+	bin, args, ok := parseImplBin()
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusSkip, Message: "SV-PERM-04: SOA_IMPL_BIN unset"}}
+	}
+	responderFile, cleanup := mustTempFile("svperm04-responder-*.jsonl")
+	defer cleanup()
+	specRoot, _ := filepath.Abs(h.Spec.Root)
+	port := implTestPort()
+	bearer := "svperm04-test-bearer"
+	env := bbcfBaseEnv(specRoot, port, bearer)
+	env["RUNNER_HANDLER_ESCALATION_TIMEOUT_MS"] = "3000"
+	env["SOA_HANDLER_ESCALATION_RESPONDER"] = responderFile
+	approve := `{"kid":"svperm04-autonomous-kid","response":"approve"}` + "\n"
+	_ = os.WriteFile(responderFile, []byte(approve), 0o600)
+	_, msg, pass := launchProbeKill(ctx, bin, args, env, func(probeCtx context.Context) (string, bool) {
+		return autonomousPdaProbe(probeCtx, h, port, bearer, "svperm04-autonomous-kid", "",
+			http.StatusForbidden, "hitl-required", "autonomous")
+	})
+	st := StatusFail
+	if pass {
+		st = StatusPass
+	}
+	return []Evidence{{Path: PathLive, Status: st, Message: msg}}
 }
 
 // autonomousPdaProbe:
@@ -182,9 +183,9 @@ func autonomousPdaProbe(
 	if err != nil {
 		return "load handler privkey: " + err.Error(), false
 	}
-	// SPKI-DER-SHA256 hex for enroll.
-	spkiHex := ed25519SpkiSha256Hex(pubKey)
-	enrollBody := fmt.Sprintf(`{"kid":%q,"spki":%q,"algo":"EdDSA","issued_at":"2026-04-22T12:00:00Z","role":"Autonomous"}`, autoKid, spkiHex)
+	// §10.6.3 spki = base64url of full DER SubjectPublicKeyInfo.
+	spkiB64 := ed25519SpkiDerBase64Url(pubKey)
+	enrollBody := fmt.Sprintf(`{"kid":%q,"spki":%q,"algo":"EdDSA","issued_at":"2026-04-22T12:00:00Z","role":"Autonomous"}`, autoKid, spkiB64)
 	enrollReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, client.BaseURL()+"/handlers/enroll", strings.NewReader(enrollBody))
 	enrollReq.Header.Set("Content-Type", "application/json")
 	enrollReq.Header.Set("Authorization", "Bearer "+bearer)
@@ -250,15 +251,27 @@ func readHandlerEd25519PrivKey(spec specvec.Locator) (ed25519.PrivateKey, ed2551
 }
 
 // ed25519SpkiSha256Hex wraps raw Ed25519 pubkey in SubjectPublicKeyInfo
-// DER, hashes with SHA-256, returns lowercase hex.
+// DER, hashes with SHA-256, returns lowercase hex. Used for x5t#S256
+// thumbprint matching.
 func ed25519SpkiSha256Hex(pub ed25519.PublicKey) string {
-	// Ed25519 SPKI DER = 12-byte prefix + 32-byte pubkey.
-	//   30 2a 30 05 06 03 2b 65 70 03 21 00
+	der := ed25519SpkiDer(pub)
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:])
+}
+
+// ed25519SpkiDer returns the full DER SubjectPublicKeyInfo bytes for
+// an Ed25519 public key. Fixed 12-byte prefix + 32-byte raw pubkey.
+func ed25519SpkiDer(pub ed25519.PublicKey) []byte {
 	der := make([]byte, 0, 44)
 	der = append(der, 0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00)
 	der = append(der, pub...)
-	sum := sha256.Sum256(der)
-	return hex.EncodeToString(sum[:])
+	return der
+}
+
+// ed25519SpkiDerBase64Url returns base64url-no-pad of the full DER
+// SubjectPublicKeyInfo. Used for §10.6.3 /handlers/enroll `spki` field.
+func ed25519SpkiDerBase64Url(pub ed25519.PublicKey) string {
+	return base64.RawURLEncoding.EncodeToString(ed25519SpkiDer(pub))
 }
 
 func mintPDA(priv ed25519.PrivateKey, kid, sessionID, tool, argsDigest string) (string, error) {

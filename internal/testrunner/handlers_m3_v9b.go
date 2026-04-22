@@ -340,33 +340,50 @@ func handleSVPERM16(ctx context.Context, h HandlerCtx) []Evidence {
 	}
 	_ = drive(dfaSid, dfaBearer)
 	_ = drive(roSid, roBearer)
-	// Fetch /audit/records and look for the 2 rows.
-	readerReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, h.Client.BaseURL()+"/audit/records?limit=200", nil)
-	readerReq.Header.Set("Authorization", "Bearer "+bootstrapBearer)
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(readerReq)
-	if err != nil {
-		return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /audit/records: " + err.Error()}}
-	}
-	raw, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return []Evidence{{Path: PathLive, Status: StatusFail, Message: fmt.Sprintf("audit status=%d", resp.StatusCode)}}
-	}
-	var doc struct {
-		Records []map[string]interface{} `json:"records"`
-	}
-	_ = json.Unmarshal(raw, &doc)
+	// Fetch /audit/records — chain grows genesis-first; paginate until
+	// we find BOTH our session rows OR exhaust the chain.
 	var dfaClass, roClass string
-	for _, r := range doc.Records {
-		rsid, _ := r["session_id"].(string)
-		rc, _ := r["retention_class"].(string)
-		if rsid == dfaSid && rc != "" {
-			dfaClass = rc
+	var after string
+	totalRecs := 0
+	for page := 0; page < 80; page++ {
+		u := h.Client.BaseURL() + "/audit/records?limit=200"
+		if after != "" {
+			u += "&after=" + after
 		}
-		if rsid == roSid && rc != "" {
-			roClass = rc
+		areq, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		areq.Header.Set("Authorization", "Bearer "+bootstrapBearer)
+		aresp, err := (&http.Client{Timeout: 5 * time.Second}).Do(areq)
+		if err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusError, Message: "GET /audit/records: " + err.Error()}}
 		}
+		raw, _ := io.ReadAll(aresp.Body)
+		aresp.Body.Close()
+		if aresp.StatusCode != http.StatusOK {
+			return []Evidence{{Path: PathLive, Status: StatusFail, Message: fmt.Sprintf("audit status=%d", aresp.StatusCode)}}
+		}
+		var doc struct {
+			Records   []map[string]interface{} `json:"records"`
+			NextAfter string                   `json:"next_after"`
+			HasMore   bool                     `json:"has_more"`
+		}
+		_ = json.Unmarshal(raw, &doc)
+		totalRecs += len(doc.Records)
+		for _, r := range doc.Records {
+			rsid, _ := r["session_id"].(string)
+			rc, _ := r["retention_class"].(string)
+			if rsid == dfaSid && rc != "" {
+				dfaClass = rc
+			}
+			if rsid == roSid && rc != "" {
+				roClass = rc
+			}
+		}
+		if (dfaClass != "" && roClass != "") || !doc.HasMore || doc.NextAfter == "" {
+			break
+		}
+		after = doc.NextAfter
 	}
+	doc := struct{ Records []map[string]interface{} }{Records: make([]map[string]interface{}, totalRecs)}
 	if dfaClass == "" || roClass == "" {
 		return []Evidence{{Path: PathLive, Status: StatusSkip,
 			Message: fmt.Sprintf("SV-PERM-16 (§10.5.6 retention_class): retention_class still missing on /audit/records " +

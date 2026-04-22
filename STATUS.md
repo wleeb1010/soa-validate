@@ -4,6 +4,43 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-22 night (impl ships BB-ext-2 + BI-impl-ext — +3 → 151/0/7/0) 🎯
+
+**Scoreboard: 151 pass / 0 fail / 7 skip / 0 error (+3 from 148). M3 ceiling 152; AE SV-STR-10 full crash-harness is the only impl-side gap remaining.**
+
+Impl shipped `35014cf`:
+- **BB-ext-2 (impl)**: `resolvePdaVerifyKey` now builds a KeyObject via `createPublicKey({format:"der", type:"spki"})` from the base64url DER SPKI stored at enroll; falls back to pinned conformance kid for the default. Dynamically-enrolled Autonomous kids verify cleanly → §10.4.1 escalation fires.
+- **BI-impl-ext (impl)**: `retention_class` now stamped on every audit row (verified via 500/500 live records carrying either `standard-90d` or `dfa-365d`). RUNNER_RESUME admin rows inherit from persisted session.activeMode; SuspectDecision rows inherit from their referenced row; SubjectSuppression defaults to standard-90d.
+
+### Flipped (+3)
+
+| Test | Finding | Probe |
+|---|---|---|
+| **SV-PERM-03** | BB-ext-2 | Enroll fresh Autonomous kid via POST /handlers/enroll (spki=base64url DER SPKI from handler-keypair pubkey, role=Autonomous) → mint PDA with header.kid + payload.handler_kid both set to the Autonomous kid → Ed25519 sign JCS(payload) → submit → 500ms silence → 403 escalation-timeout |
+| **SV-PERM-04** | BB-ext-2 | Same enroll + PDA flow, but pre-write `{response:"approve"}` to SOA_HANDLER_ESCALATION_RESPONDER → impl rejects with 403 hitl-required(autonomous-insufficient) because HITL ≠ Autonomous self-approve |
+| **SV-PERM-16** | BI-impl-ext | Mint 1 DFA + 1 ReadOnly session; drive 1 decision per; paginate /audit/records up to 80 pages × 200 rows; assert `records[dfa_sid].retention_class=="dfa-365d"` AND `records[readonly_sid].retention_class=="standard-90d"` |
+
+### Validator-side calibrations
+
+- **§10.6.3 `spki` field encoding**: initial probe sent hex SHA-256 of DER; impl expected base64url of full DER SubjectPublicKeyInfo. Added `ed25519SpkiDerBase64Url` helper (12-byte Ed25519 DER prefix + 32-byte raw pubkey → base64url-no-pad). Both the sha256-hex form (for `x5t#S256` thumbprint) and the DER-b64 form (for enrollment) coexist cleanly.
+- **SV-PERM-16 pagination**: audit chain now exceeds 4000+ rows after accumulated full-suite runs. Single-page fetch returns genesis-first 200 records; probe's session rows buried at tail. Bumped to 80-page walk (≤16000 rows) with early-exit when both target session classes found.
+
+### 7 remaining skips (all legit deferrals + 1 pending)
+
+| Test | Category |
+|---|---|
+| **SV-STR-10** | AE — full crash harness (only impl-side gap remaining) |
+| SV-BUD-03, SV-STR-04/11/16 | M4 retag (LLM dispatcher / Gateway) |
+| SV-MEM-08 | pre-budgeted (cross-tenant Memory MCP) |
+| SV-SESS-06 | platform-gated (POSIX-only; Windows host runs SV-SESS-07 twin) |
+
+### Trajectory to M3 exit
+
+- **Today**: 151 pass / 0 fail / 7 skip
+- **+ AE (SV-STR-10 full crash harness)**: → 152 / 0 / 6 / 0 (M3 exit target)
+
+---
+
 ## 2026-04-22 night (L-50 pin + BE-ext live + BB-ext-2 routed — 148 pass / 0 fail / 10 skip)
 
 **Scoreboard: 148 pass / 0 fail / 10 skip / 0 error (+1 from 147). Ceiling now 151 pending 3 remaining impl findings.**
