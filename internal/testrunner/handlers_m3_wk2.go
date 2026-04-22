@@ -46,17 +46,24 @@ func handleSVBUD01(ctx context.Context, h HandlerCtx) []Evidence {
 		return ""
 	}, "§13 projection algorithm: safety_factor=1.15, cold_start_baseline_active=true, cumulative=0 at session-start")
 }
+// SV-BUD-02: §13.2 pre-call halt. Impl DOES have the refusal path
+// (decisions-route.ts:389 terminateForBudgetExhausted + wouldExhaust
+// gate, and decisions-route.ts:763 post-recordTurn termination). But
+// exhausting the default 200k maxTokensPerRun requires ~391 decisions
+// at 512 tokens/turn — impractical for a conformance run. Needs a
+// test-scale override so the validator can drive 2-3 turns into a
+// tripwire budget.
 func handleSVBUD02(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-02", "§13 pre-call halt — projection predicts exhaustion → refuse decision. **Finding K**: impl's BudgetTracker.recordTurn() has zero callers in src; /permissions/decisions doesn't invoke it. Cumulative accounting never advances, so budget exhaustion cannot be driven externally. Impl T-4 wired the tracker class but not its invocation path.")
+	return budgetPending(h, "SV-BUD-02", "§13.2 pre-call halt. Impl has wouldExhaust() + terminateForBudgetExhausted() — the refusal wiring is in decisions-route.ts. But maxTokensPerRun is hard-coded to 200_000 (start-runner.ts:384) with a 512-token/turn estimate, so exhausting takes ~391 decisions — impractical at conformance-run scale. **Impl-side ask: accept a RUNNER_MAX_TOKENS_PER_RUN env override (or SOA_RUNNER_MAX_TOKENS_PER_RUN per production-guard pattern) so validator can spawn a subprocess with max=1000 and drive 2 decisions into a BudgetExhausted refusal.**")
 }
 func handleSVBUD03(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on BudgetExhausted. **Finding K**: same recordTurn-zero-callers gap as SV-BUD-02; mid-stream cancel requires budget to actually exhaust.")
+	return budgetPending(h, "SV-BUD-03", "§13 mid-stream cancel on next ContentBlockDelta boundary. Requires real LLM dispatcher + ContentBlockDelta streaming (M4 scope); M3 impl stops before real dispatch. **Retag candidate M3 → M4** — identical routing rationale to SV-STR-11.")
 }
 func handleSVBUD04(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-04", "§13 cache_accounting fields populated after real turns. **Finding K**: recordTurn has zero callers; cache_accounting stays unpopulated in the cold-start body. Spec requires observable turn accounting path.")
+	return budgetPending(h, "SV-BUD-04", "§13 cached input counted at 10% (or provider-advertised ratio). Impl exposes cache_accounting in /budget/projection (prompt_tokens_cached + completion_tokens_cached) but recordTurn(sid, TurnRecord) only accepts `actual_total_tokens` — the cached-totals fields stay 0 forever because nothing feeds them. **Impl-side ask: extend TurnRecord + recordTurn to accept `prompt_tokens_cached` + `completion_tokens_cached` so the 10% ratio is observable via /budget/projection after driven turns.**")
 }
 func handleSVBUD05(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-05", "§13 billing_tag propagation through audit records. **Finding K**: no turn-recording path; billing_tag never flows from a turn into audit. Needs impl to wire recordTurn at a real turn boundary OR ship an observable test-hook endpoint.")
+	return budgetPending(h, "SV-BUD-05", "§13 billingTag present on OTel resource + audit record + events. **Zero grep matches for billing_tag / billingTag in impl src** — the primitive is not implemented anywhere. Spec requires it in the Agent Card manifest, session bootstrap, audit record fields, and OTel resource attributes. **Impl-side ask: implement billing_tag end-to-end: (1) bootstrap accepts `billing_tag` field, (2) audit records carry `billing_tag`, (3) /events/recent events carry `billing_tag` payload field, (4) OTel resource sets `soa.billing.tag` (§14.4 normative).**")
 }
 // SV-BUD-06: §13 StopReason closed enum — /budget/projection exposes
 // `stop_reason_if_exhausted` as a const "BudgetExhausted" per schema.
@@ -73,7 +80,7 @@ func handleSVBUD06(ctx context.Context, h HandlerCtx) []Evidence {
 	}, "§13 StopReason closed enum: /budget/projection.stop_reason_if_exhausted=\"BudgetExhausted\"")
 }
 func handleSVBUD07(ctx context.Context, h HandlerCtx) []Evidence {
-	return budgetPending(h, "SV-BUD-07", "§13 BillingTagMismatch detected via /budget/projection. **Finding K**: no recordTurn invocation path; impossible to surface a mismatch event in the absence of turn accounting.")
+	return budgetPending(h, "SV-BUD-07", "§13 Session billing_tag ≠ Agent Card billing_tag → BillingTagMismatch. **Zero grep matches for BillingTagMismatch in impl src** — neither the field plumbing nor the mismatch-detection gate exist. Paired with SV-BUD-05's billing_tag ask; once bootstrap accepts a `billing_tag` field and the Agent Card loader exposes the card's billing_tag, the mismatch path becomes: bootstrap with differing tag → 403 BillingTagMismatch. **Impl-side ask: after billing_tag plumbing lands, add the mismatch gate at POST /sessions.**")
 }
 
 // SV-BUD-PROJ-01: schema validity on GET /budget/projection/<session_id>.

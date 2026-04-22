@@ -4,6 +4,34 @@ Daily log the sibling `soa-harness-impl` session reads on `git pull`. Most recen
 
 ---
 
+## 2026-04-21 (V-9b SV-BUD routing — 0 flips, 5 surgical impl-findings)
+
+**Scoreboard: 59 pass / 0 fail / 21 skip / 0 error (unchanged).** V-9b expected +5, delivered +0 — impl surfaces for 4 of 5 tests are either hard-coded or entirely absent; sharpening the skip diagnostics into a concrete impl punch list is the valuable V-9b output.
+
+| Test | Why can't flip | Impl ask |
+|---|---|---|
+| SV-BUD-02 | Refusal wiring is in (`terminateForBudgetExhausted` + `wouldExhaust` gate at decisions-route.ts:389/763). But `maxTokensPerRun` is hard-coded 200_000 with 512-token/turn estimate — ~391 decisions to exhaust | **Accept `RUNNER_MAX_TOKENS_PER_RUN` env override** so validator can spawn subprocess with max=1000 and drive 2 decisions into refusal |
+| SV-BUD-03 | Mid-ContentBlockDelta cancel requires LLM dispatcher + streaming (M4 scope) | **Retag M3 → M4** (same rationale as SV-STR-11) |
+| SV-BUD-04 | `cache_accounting` fields exist in `/budget/projection` schema but `recordTurn(TurnRecord)` only accepts `actual_total_tokens` — cached totals stay 0 forever | **Extend `TurnRecord` to accept `prompt_tokens_cached` + `completion_tokens_cached`** |
+| SV-BUD-05 | `billing_tag` / `billingTag` has **zero grep matches in impl src** — primitive isn't implemented anywhere | **Implement billing_tag end-to-end**: bootstrap accepts the field, audit records carry it, `/events/recent` payloads carry it, OTel resource sets `soa.billing.tag` |
+| SV-BUD-07 | `BillingTagMismatch` has **zero grep matches** — detection gate doesn't exist | **After SV-BUD-05 plumbing lands, add mismatch gate at POST /sessions** |
+
+### SV-STR skip-routing resolutions (per impl-session ask)
+
+- **SV-STR-06/07** (OTel): spec MUSTs emission (§14.4) but defines no validator-observable surface — **spec-side gap**: needs §14.5.2 OTel-observability endpoint OR impl span-mirror channel.
+- **SV-STR-08** (`ObservabilityBackpressure`): exists as §24 error-code + §14.4 mandates the 10k-drop behavior, but no observation surface — **spec-side gap**: add to §14.1 closed enum OR define `/observability/backpressure` endpoint.
+- **SV-STR-10**: composable with SV-SESS crash-recovery harness (no separate routing).
+- **SV-STR-11** (`CompactionDeferred`): requires real LLM dispatcher — **retag M3 → M4**.
+- **SV-STR-16** (Gateway trust_class): Gateway-scope per §14.6 — **retag M3 → M4** (Gateway profile).
+
+### Net routing delivered to spec + impl
+
+- **2 spec-side gaps** (SV-STR-06/07 OTel observation surface; SV-STR-08 backpressure surface)
+- **3 must-map retags** M3→M4 (SV-STR-11, SV-STR-16, SV-BUD-03)
+- **4 impl-side asks** (SV-BUD-02 test-scale env override; SV-BUD-04 cache wiring; SV-BUD-05 billing_tag end-to-end; SV-BUD-07 mismatch gate)
+
+---
+
 ## 2026-04-21 (V-9a stream conversions — +6 SV-STR greens)
 
 **Scoreboard: 59 pass / 0 fail / 21 skip / 0 error.**
