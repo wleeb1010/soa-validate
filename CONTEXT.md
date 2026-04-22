@@ -2,6 +2,14 @@
 
 > **Read this file before doing anything in a fresh Claude Code session.** It captures what a previous session (and the spec authors) already decided, so you don't re-derive it.
 
+## CodeGraphContext (CGC)
+
+CGC MCP is wired at user level (`~/.claude.json`) against Neo4j at `bolt://localhost:7687`. This repo is indexed alongside `soa-harness-impl` and shares the same graph; query spans both. When exploring code relationships, prefer CGC queries (`cgc find`, `cgc analyze`, `cgc query` Cypher) over grep.
+
+- **Re-index this repo:** `cgc index --force .` (takes ~10s).
+- **Post-commit refresh:** `.git/hooks/post-commit` runs `cgc index --force` in the background after every commit. Needs `PYTHONIOENCODING=utf-8` on Windows to avoid a cgc CLI emoji-encoding crash (the indexing succeeds either way, but the traceback is noisy). Hooks aren't versioned — if you re-clone, recreate the hook from the template in `docs/cgc-post-commit.sh` (or just run `cgc index .` on demand).
+- **Sanity query:** `cgc find name BudgetTracker` locates the class in `soa-harness-impl/packages/runner/src/budget/tracker.ts`; a Cypher query on `(src)-[:IMPORTS]->(:Module {name contains 'budget/index'})` lists its 11 consumers (5 runner/src + 6 runner/test files).
+
 ## Where we are
 
 **Date:** 2026-04-20
