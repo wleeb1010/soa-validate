@@ -1,7 +1,7 @@
 # Graph Report - C:\Users\wbrumbalow\Documents\Projects\soa-validate  (2026-04-22)
 
 ## Corpus Check
-- 69 files · ~146,249 words
+- 69 files · ~146,358 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -67,7 +67,7 @@ Nodes (6): Spec §10, Spec §10.6, Spec §21.2, Spec §7.4, soa-harness=specific
 
 ### Community 5 - ""CONTEXT.md""
 Cohesion: 0.33
-Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, HR-12, HR-02, SV-SIGN-01, HR-04 (+6 more)
+Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, SV-SIGN-01, HR-12, SV-CARD-01, SV-BOOT-01 (+6 more)
 
 ### Community 6 - ""docs/M1-EXIT-GATE.md""
 Cohesion: 1.0

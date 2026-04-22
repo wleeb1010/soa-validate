@@ -3119,7 +3119,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "CLAUDE.md",
-      "source_location": "line 40",
+      "source_location": "line 49",
       "weight": 1.0
     },
     {
@@ -3139,7 +3139,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "CLAUDE.md",
-      "source_location": "line 32",
+      "source_location": "line 41",
       "weight": 1.0
     },
     {
