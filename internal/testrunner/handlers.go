@@ -168,11 +168,16 @@ var Handlers = map[string]Handler{
 	"SV-PERM-18": handleSVPERM18,
 
 	// M3 Week 4 (V-12) — HR-07/09/10/11 harness regressions. HR-01 wired above;
-	// HR-02/03/14/17 are other tracks; HR-06/08/13/15/16/18 are M4/M5.
+	// HR-02/03/14 are other tracks; HR-06/08/13/15/16/18 are M4/M5.
 	"HR-07": handleHR07,
 	"HR-09": handleHR09,
 	"HR-10": handleHR10,
 	"HR-11": handleHR11,
+
+	// M5 Gate 3 follow-up (2026-04-23 Plan) — HR-17 registered as a skip
+	// with precise diagnostic so JUnit output names it. A live probe
+	// needs subprocess spawn OR §8.7.7 backend fault-injection (deferred).
+	"HR-17": handleHR17,
 
 	// M3 Week 4 (V-11) — §7 AGENTS.md grammar + imports (SV-AGENTS-06 is M5).
 	"SV-AGENTS-01": handleSVAGENTS01,

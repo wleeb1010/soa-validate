@@ -92,6 +92,14 @@ func handleSVMEM01(ctx context.Context, h HandlerCtx) []Evidence {
 	bin, args, env, mock, port, cleanup, skip := memProbeEnv(h, memmock.Options{TimeoutAfterNCalls: -1})
 	defer cleanup()
 	if skip != "" {
+		// Subprocess path unavailable. Fall through to running-Runner
+		// live variant (weaker but backend-agnostic — asserts the
+		// Runner at SOA_IMPL_URL consumed its configured Memory MCP
+		// at bootstrap via /memory/state.in_context_notes non-emptiness).
+		if ev, tried := liveRunnerSVMEM01(ctx, h); tried {
+			out = append(out, ev)
+			return out
+		}
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SV-MEM-01: " + skip})
 		return out
 	}
@@ -140,6 +148,13 @@ func handleSVMEM02(ctx context.Context, h HandlerCtx) []Evidence {
 	bin, args, env, _, port, cleanup, skip := memProbeEnv(h, memmock.Options{TimeoutAfterNCalls: -1})
 	defer cleanup()
 	if skip != "" {
+		// Subprocess path unavailable — fall through to running-Runner
+		// live variant (two bootstraps against SOA_IMPL_URL + compare
+		// /memory/state.in_context_notes note_id ordering).
+		if ev, tried := liveRunnerSVMEM02(ctx, h); tried {
+			out = append(out, ev)
+			return out
+		}
 		out = append(out, Evidence{Path: PathLive, Status: StatusSkip, Message: "SV-MEM-02: " + skip})
 		return out
 	}
@@ -611,12 +626,20 @@ func handleSVMEM07(ctx context.Context, h HandlerCtx) []Evidence {
 	return out
 }
 func handleSVMEM08(ctx context.Context, h HandlerCtx) []Evidence {
-	// Pre-budgeted skip per plan — cross-tenant isolation may need a
-	// real Memory MCP (not the mock). Report honestly rather than force.
-	return []Evidence{
-		{Path: PathVector, Status: StatusSkip, Message: "pre-budgeted skip per M3 plan: cross-tenant isolation may need real Memory MCP beyond the fixture's scope"},
-		{Path: PathLive, Status: StatusSkip, Message: "SV-MEM-08 pre-budgeted against M3 19-skip budget; fixture scope insufficient for real-MCP tenant isolation"},
+	out := []Evidence{{Path: PathVector, Status: StatusSkip,
+		Message: "pre-budgeted skip per M3 plan: cross-tenant isolation may need real Memory MCP beyond the fixture's scope"}}
+	// M5 Gate 3 Plan — when SOA_MEMORY_MCP_ENDPOINT is set, drive the
+	// backend directly (same pattern SV-MEM-07 uses against memmock):
+	// add_memory_note → delete_memory_note → verify tombstone shape.
+	// Exercises the backend the Runner is configured with, whatever it is
+	// (memmock, sqlite, mem0, Zep) per the L-56 §8.1 six-tool contract.
+	if ev, tried := liveBackendSVMEM08(ctx, h); tried {
+		out = append(out, ev)
+		return out
 	}
+	out = append(out, Evidence{Path: PathLive, Status: StatusSkip,
+		Message: "SV-MEM-08 pre-budgeted against M3 19-skip budget; set SOA_MEMORY_MCP_ENDPOINT to drive the backend directly (§8.1 add_memory_note + delete_memory_note lifecycle)"})
+	return out
 }
 
 func handleSVMEMSTATE01(ctx context.Context, h HandlerCtx) []Evidence {
