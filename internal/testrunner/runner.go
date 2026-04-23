@@ -58,6 +58,27 @@ func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
 				Message: "test id not found in must-map"})
 			continue
 		}
+		// Adapter-mode auto-scope (L-54): when --adapter=<name> is supplied,
+		// --impl-url points at the adapter's slim surface (§5 card + events
+		// only). Non-adapter tests drive Core Runner endpoints that the
+		// adapter by design does not serve (/permissions/decisions,
+		// /audit/records, /sessions, etc.), so we skip them with a
+		// pointer to the two-run composition model. SV-ADAPTER-* are the
+		// only tests that belong to the adapter surface.
+		if cfg.Adapter != "" && !strings.HasPrefix(id, "SV-ADAPTER-") {
+			results = append(results, Result{
+				ID: id, Name: def.Name, Section: def.Section,
+				Profile: def.Profile, Severity: def.Severity,
+				Status: StatusSkip,
+				Message: "scope=adapter-only; run native against Core Runner URL for these",
+				Evidence: []Evidence{{
+					Path: PathLive, Status: StatusSkip,
+					Message: "adapter-mode auto-scope: --adapter=" + cfg.Adapter + " limits the run to SV-ADAPTER-* probes against the adapter's §18.5 surface. Non-adapter tests belong to the native-Runner two-run composition (L-54).",
+				}},
+			})
+			continue
+		}
+
 		// Spec-authored deferral: tests with implementation_milestone
 		// outside the current scope skip with the spec's declared reason.
 		// Default scope is {M1, M2, M3}; M4+ features stay deferred.
