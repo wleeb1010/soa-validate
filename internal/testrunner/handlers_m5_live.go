@@ -154,7 +154,9 @@ func liveLoadNoteIDs(ctx context.Context, h HandlerCtx, bootstrapBearer string) 
 // exercises the backend under test rather than a validator-owned mock.
 //
 // Flow: add_memory_note (seed) → delete_memory_note → verify tombstone
-// shape {tombstone_id, deleted_at, note_id}. §8.1 tombstone contract.
+// shape {tombstone_id, deleted_at}. §8.1 post-L-58 canonical signatures:
+//   add_memory_note:    {summary, data_class, session_id, note_id?, tags?, importance?} → {note_id, created_at}
+//   delete_memory_note: {id, reason} → {deleted, tombstone_id, deleted_at}
 func liveBackendSVMEM08(ctx context.Context, h HandlerCtx) (Evidence, bool) {
 	endpoint := strings.TrimRight(os.Getenv("SOA_MEMORY_MCP_ENDPOINT"), "/")
 	if endpoint == "" {
@@ -178,22 +180,25 @@ func liveBackendSVMEM08(ctx context.Context, h HandlerCtx) (Evidence, bool) {
 		return Evidence{Path: PathLive, Status: StatusFail,
 			Message: "SV-MEM-08 (live-backend): delete_memory_note response missing deleted_at"}, true
 	}
-	if tombstone.NoteID != "" && tombstone.NoteID != noteID {
-		return Evidence{Path: PathLive, Status: StatusFail,
-			Message: fmt.Sprintf("SV-MEM-08 (live-backend): tombstone.note_id=%q does not echo request note_id=%q", tombstone.NoteID, noteID)}, true
-	}
 	return Evidence{Path: PathLive, Status: StatusPass,
-		Message: fmt.Sprintf("SV-MEM-08 (live-backend): §8.1 delete_memory_note at SOA_MEMORY_MCP_ENDPOINT returned tombstone {tombstone_id=%s, deleted_at=%s} for seeded note_id=%s", tombstone.TombstoneID, tombstone.DeletedAt, noteID)}, true
+		Message: fmt.Sprintf("SV-MEM-08 (live-backend): §8.1 (L-58) add → delete at SOA_MEMORY_MCP_ENDPOINT — tombstone {tombstone_id=%s, deleted_at=%s} for seeded note_id=%s", tombstone.TombstoneID, tombstone.DeletedAt, noteID)}, true
 }
 
 type backendTombstone struct {
 	TombstoneID string `json:"tombstone_id"`
 	DeletedAt   string `json:"deleted_at"`
-	NoteID      string `json:"note_id"`
 }
 
+// backendAddNote posts the canonical §8.1 add_memory_note body per L-58
+// errata: {summary, data_class, session_id, tags?, importance?}. data_class
+// "internal" picked because §10.7.2 forbids "sensitive-personal" and the
+// other non-sensitive values (public/confidential/personal) all work
+// equivalently for this probe — "internal" is the least-sensitive default.
+// session_id is a synthetic identifier; backends that require a valid
+// Runner session_id (stricter than the mock) will surface that as an
+// explicit error and the skip diagnostic will name the mismatch.
 func backendAddNote(ctx context.Context, endpoint string) (string, error) {
-	body := `{"note":{"content":"sv-mem-08 seed","tags":["sv-mem-08"],"importance":0.3}}`
+	body := `{"summary":"sv-mem-08 probe seed","data_class":"internal","session_id":"sv-mem-08-probe","tags":["probe","sv-mem-08"],"importance":0.5}`
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
 		endpoint+"/add_memory_note", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
@@ -207,19 +212,30 @@ func backendAddNote(ctx context.Context, endpoint string) (string, error) {
 		return "", fmt.Errorf("status=%d body=%s", resp.StatusCode, truncate(string(raw), 160))
 	}
 	var parsed struct {
-		NoteID string `json:"note_id"`
+		NoteID    string `json:"note_id"`
+		CreatedAt string `json:"created_at"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return "", fmt.Errorf("parse: %w", err)
 	}
 	if parsed.NoteID == "" {
-		return "", fmt.Errorf("backend returned empty note_id")
+		return "", fmt.Errorf("backend returned empty note_id (body=%s)", truncate(string(raw), 160))
+	}
+	if parsed.CreatedAt == "" {
+		// §8.1 post-L-58 response includes created_at; flag absence
+		// explicitly so the impl side can fix rather than silently
+		// passing.
+		return "", fmt.Errorf("backend response missing created_at (§8.1 post-L-58 requires {note_id, created_at}; body=%s)", truncate(string(raw), 160))
 	}
 	return parsed.NoteID, nil
 }
 
+// backendDeleteNote posts the canonical §8.1 delete_memory_note body:
+// {id, reason} per the memmock README's normative table. The prior
+// shape {note_id} was validator drift — corrected alongside the L-58
+// add_memory_note flip.
 func backendDeleteNote(ctx context.Context, endpoint, noteID string) (backendTombstone, error) {
-	body := fmt.Sprintf(`{"note_id":%q}`, noteID)
+	body := fmt.Sprintf(`{"id":%q,"reason":"sv-mem-08 probe"}`, noteID)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
 		endpoint+"/delete_memory_note", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
