@@ -636,12 +636,19 @@ func handleSVREG03(ctx context.Context, h HandlerCtx) []Evidence {
 
 	port := implTestPort()
 	bearer := "svreg03-test-bearer"
+	// Route sessions/ to the fresh temp dir so boot-scan has O(0)
+	// persisted sessions to hydrate. Without this, the spawned Runner
+	// inherits the impl repo's CWD-relative ./sessions — which
+	// accumulates thousands of historical rows and starves the
+	// dynamic-tool watcher during boot-scan for longer than the 8s
+	// poll deadline on Windows.
 	env := map[string]string{
 		"RUNNER_PORT":                         strconv.Itoa(port),
 		"RUNNER_HOST":                         "127.0.0.1",
 		"RUNNER_INITIAL_TRUST":                filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
 		"RUNNER_CARD_FIXTURE":                 filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
 		"RUNNER_TOOLS_FIXTURE":                filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_SESSION_DIR":                  filepath.Join(tmp, "sessions"),
 		"RUNNER_DEMO_MODE":                    "1",
 		"SOA_RUNNER_BOOTSTRAP_BEARER":         bearer,
 		"SOA_RUNNER_DYNAMIC_TOOL_REGISTRATION": triggerPath,
