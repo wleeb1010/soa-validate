@@ -1,7 +1,8 @@
 // Package memmock is a minimum-viable in-process Memory MCP server for
-// SV-MEM-* conformance probes. Speaks the HTTP shape impl's
-// MemoryMcpClient expects (POST /search_memories, /write_memory,
-// /consolidate_memories per L-34 test-vectors/memory-mcp-mock/).
+// SV-MEM-* conformance probes. Speaks the §8.1 six-tool set per L-56
+// tool-surface lockdown: add_memory_note, search_memories,
+// search_memories_by_time, read_memory_note, consolidate_memories,
+// delete_memory_note.
 //
 // Validator-built from scratch per the spec README guidance ("validators
 // SHOULD build the reference mock from scratch to maintain the
@@ -68,12 +69,26 @@ type MemMock struct {
 	callLog     []string // tool name per invocation
 	callCount   int64
 	searchCalls []SearchCall
-	// write_memory note-id counter for deterministic test output.
-	writeSeq int64
-	// L-38 delete_memory_note idempotency: note_id → {tombstone_id, deleted_at}.
+	// add_memory_note: monotonic seq for id minting; addedNotes holds the
+	// bodies so read_memory_note can round-trip them.
+	addSeq     int64
+	addedMu    sync.Mutex
+	addedNotes map[string]addedNote
+	// delete_memory_note idempotency (§8.1 line 584): note_id →
+	// {tombstone_id, deleted_at}.
 	tombMu     sync.Mutex
 	tombstones map[string]tombstoneRecord
 	tombSeq    int64
+}
+
+// addedNote holds an add_memory_note body for later read_memory_note / search
+// lookups. Includes created_at as RFC 3339 per §8.1.
+type addedNote struct {
+	ID         string   `json:"id"`
+	Note       string   `json:"note"`
+	Tags       []string `json:"tags"`
+	Importance float64  `json:"importance"`
+	CreatedAt  string   `json:"created_at"`
 }
 
 type tombstoneRecord struct {
@@ -83,7 +98,11 @@ type tombstoneRecord struct {
 
 // New creates a new MemMock but does not start it.
 func New(opts Options) (*MemMock, error) {
-	m := &MemMock{opts: opts, tombstones: map[string]tombstoneRecord{}}
+	m := &MemMock{
+		opts:       opts,
+		tombstones: map[string]tombstoneRecord{},
+		addedNotes: map[string]addedNote{},
+	}
 	if opts.CorpusPath != "" {
 		raw, err := os.ReadFile(opts.CorpusPath)
 		if err != nil {
@@ -96,8 +115,10 @@ func New(opts Options) (*MemMock, error) {
 		m.corpus = doc.Notes
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/add_memory_note", m.handleAddMemoryNote)
 	mux.HandleFunc("/search_memories", m.handleSearch)
-	// write_memory removed per spec L-38 (§8.1 five-tool set).
+	mux.HandleFunc("/search_memories_by_time", m.handleSearchByTime)
+	mux.HandleFunc("/read_memory_note", m.handleReadMemoryNote)
 	mux.HandleFunc("/consolidate_memories", m.handleConsolidate)
 	mux.HandleFunc("/delete_memory_note", m.handleDelete)
 	m.srv = &http.Server{Handler: mux}
@@ -268,19 +289,193 @@ func recencyWeight(daysAgo int) float64 {
 	return w
 }
 
-func (m *MemMock) handleWrite(w http.ResponseWriter, r *http.Request) {
-	m.logCall("write_memory")
+// handleAddMemoryNote implements POST /add_memory_note per §8.1:
+// (note ≤16 KiB, tags ≤32 × ≤64 chars, importance 0.0–1.0) → (id, created_at).
+// Errors per §24: MemoryQuotaExceeded, MemoryDuplicate, MemoryMalformedInput.
+func (m *MemMock) handleAddMemoryNote(w http.ResponseWriter, r *http.Request) {
+	m.logCall("add_memory_note")
 	if m.shouldTimeout() {
 		m.hang(w, r)
 		return
 	}
-	if m.opts.ReturnErrorForTool == "write_memory" {
+	if m.opts.ReturnErrorForTool == "add_memory_note" {
 		writeJSON(w, map[string]interface{}{"error": "mock-error"})
 		return
 	}
-	seq := atomic.AddInt64(&m.writeSeq, 1)
+	var req struct {
+		Note       string   `json:"note"`
+		Tags       []string `json:"tags"`
+		Importance float64  `json:"importance"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	if len(req.Note) > 16*1024 {
+		writeJSON(w, map[string]interface{}{"error": "MemoryQuotaExceeded"})
+		return
+	}
+	if req.Importance < 0 || req.Importance > 1 {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	if len(req.Tags) > 32 {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	for _, t := range req.Tags {
+		if len(t) > 64 {
+			writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+			return
+		}
+	}
+	seq := atomic.AddInt64(&m.addSeq, 1)
+	id := fmt.Sprintf("mem_mock_added_%08d", seq)
+	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+	m.addedMu.Lock()
+	m.addedNotes[id] = addedNote{
+		ID: id, Note: req.Note, Tags: req.Tags,
+		Importance: req.Importance, CreatedAt: createdAt,
+	}
+	m.addedMu.Unlock()
 	atomic.AddInt64(&m.callCount, 1)
-	writeJSON(w, map[string]interface{}{"note_id": fmt.Sprintf("mem_mock_write_%08d", seq)})
+	writeJSON(w, map[string]interface{}{"id": id, "created_at": createdAt})
+}
+
+// handleSearchByTime implements POST /search_memories_by_time per §8.1:
+// (start, end) → (hits, truncated). The mock's seeded corpus carries
+// RecencyDaysAgo rather than absolute timestamps, so this handler
+// returns the added-notes subset whose created_at falls in [start, end];
+// seeded corpus items are synthesized as now - recency_days for the
+// hits list.
+func (m *MemMock) handleSearchByTime(w http.ResponseWriter, r *http.Request) {
+	m.logCall("search_memories_by_time")
+	if m.shouldTimeout() {
+		m.hang(w, r)
+		return
+	}
+	if m.opts.ReturnErrorForTool == "search_memories_by_time" {
+		writeJSON(w, map[string]interface{}{"error": "mock-error"})
+		return
+	}
+	var req struct {
+		Start string `json:"start"`
+		End   string `json:"end"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	var start, end time.Time
+	var err error
+	if req.Start != "" {
+		start, err = time.Parse(time.RFC3339, req.Start)
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+			return
+		}
+	}
+	if req.End != "" {
+		end, err = time.Parse(time.RFC3339, req.End)
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+			return
+		}
+	}
+	hits := make([]map[string]interface{}, 0)
+	m.addedMu.Lock()
+	for _, n := range m.addedNotes {
+		created, err := time.Parse(time.RFC3339Nano, n.CreatedAt)
+		if err != nil {
+			continue
+		}
+		if !start.IsZero() && created.Before(start) {
+			continue
+		}
+		if !end.IsZero() && created.After(end) {
+			continue
+		}
+		// Tombstoned ids MUST NOT appear (§8.1 search contract).
+		m.tombMu.Lock()
+		_, tombed := m.tombstones[n.ID]
+		m.tombMu.Unlock()
+		if tombed {
+			continue
+		}
+		hits = append(hits, map[string]interface{}{
+			"id":         n.ID,
+			"created_at": n.CreatedAt,
+			"tags":       n.Tags,
+		})
+	}
+	m.addedMu.Unlock()
+	// Stable sort by created_at for deterministic test assertions.
+	sort.SliceStable(hits, func(i, j int) bool {
+		return hits[i]["created_at"].(string) < hits[j]["created_at"].(string)
+	})
+	atomic.AddInt64(&m.callCount, 1)
+	writeJSON(w, map[string]interface{}{"hits": hits, "truncated": false})
+}
+
+// handleReadMemoryNote implements POST /read_memory_note per §8.1:
+// (id) → (id, note, tags, importance, created_at, graph_edges).
+// Errors: MemoryNotFound. Tombstoned ids return MemoryNotFound.
+func (m *MemMock) handleReadMemoryNote(w http.ResponseWriter, r *http.Request) {
+	m.logCall("read_memory_note")
+	if m.shouldTimeout() {
+		m.hang(w, r)
+		return
+	}
+	if m.opts.ReturnErrorForTool == "read_memory_note" {
+		writeJSON(w, map[string]interface{}{"error": "mock-error"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	m.tombMu.Lock()
+	_, tombed := m.tombstones[req.ID]
+	m.tombMu.Unlock()
+	if tombed {
+		writeJSON(w, map[string]interface{}{"error": "MemoryNotFound"})
+		return
+	}
+	m.addedMu.Lock()
+	n, ok := m.addedNotes[req.ID]
+	m.addedMu.Unlock()
+	if ok {
+		atomic.AddInt64(&m.callCount, 1)
+		writeJSON(w, map[string]interface{}{
+			"id":          n.ID,
+			"note":        n.Note,
+			"tags":        n.Tags,
+			"importance":  n.Importance,
+			"created_at":  n.CreatedAt,
+			"graph_edges": []map[string]interface{}{},
+		})
+		return
+	}
+	// Fall back to seeded corpus. Corpus notes carry only summary/data_class,
+	// so the read response surfaces summary under note + an empty graph.
+	for _, c := range m.corpus {
+		if c.NoteID == req.ID {
+			atomic.AddInt64(&m.callCount, 1)
+			writeJSON(w, map[string]interface{}{
+				"id":          c.NoteID,
+				"note":        c.Summary,
+				"tags":        []string{c.DataClass},
+				"importance":  c.GraphStrength,
+				"created_at":  time.Now().UTC().Add(-time.Duration(c.RecencyDaysAgo) * 24 * time.Hour).Format(time.RFC3339Nano),
+				"graph_edges": []map[string]interface{}{},
+			})
+			return
+		}
+	}
+	writeJSON(w, map[string]interface{}{"error": "MemoryNotFound"})
 }
 
 func (m *MemMock) handleConsolidate(w http.ResponseWriter, r *http.Request) {
