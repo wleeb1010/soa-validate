@@ -52,6 +52,17 @@ func memProbeEnv(h HandlerCtx, mockOpts memmock.Options) (cmdBin string, cmdArgs
 	if err := m.Start(); err != nil {
 		return "", nil, nil, nil, 0, func() {}, "memmock.Start: " + err.Error()
 	}
+	// Isolate RUNNER_SESSION_DIR to a fresh temp dir so boot-scan has
+	// O(0) persisted sessions. Without this the spawned Runner inherits
+	// CWD-relative ./sessions, which accumulates thousands of files across
+	// the session and starves the memory readiness probe past its boot
+	// window (Runner returns 503 with reason "memory-mcp-unavailable"
+	// and subsequent /sessions calls also 503). Same class of fix as
+	// SV-REG-03 (commit df56f6f).
+	sessDir, err := os.MkdirTemp("", "svmem-sess-*")
+	if err != nil {
+		return "", nil, nil, nil, 0, func() {}, "mkdir session dir: " + err.Error()
+	}
 	port := implTestPort()
 	bearer := "svmem-test-bearer"
 	env = map[string]string{
@@ -60,11 +71,15 @@ func memProbeEnv(h HandlerCtx, mockOpts memmock.Options) (cmdBin string, cmdArgs
 		"RUNNER_INITIAL_TRUST":             filepath.Join(specRoot, "test-vectors", "initial-trust", "valid.json"),
 		"RUNNER_CARD_FIXTURE":              filepath.Join(specRoot, "test-vectors", "conformance-card", "agent-card.json"),
 		"RUNNER_TOOLS_FIXTURE":             filepath.Join(specRoot, "test-vectors", "tool-registry", "tools.json"),
+		"RUNNER_SESSION_DIR":               sessDir,
 		"RUNNER_DEMO_MODE":                 "1",
 		"SOA_RUNNER_BOOTSTRAP_BEARER":      bearer,
 		"SOA_RUNNER_MEMORY_MCP_ENDPOINT":   m.URL(),
 	}
-	return bin, args, env, m, port, func() { m.Stop() }, ""
+	return bin, args, env, m, port, func() {
+		m.Stop()
+		_ = os.RemoveAll(sessDir)
+	}, ""
 }
 
 // SV-MEM-01: Memory MCP tools discoverable and impl consumes them at

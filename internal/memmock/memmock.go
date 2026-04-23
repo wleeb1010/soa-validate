@@ -256,16 +256,16 @@ func (m *MemMock) handleSearch(w http.ResponseWriter, r *http.Request) {
 		maxScore = 1
 	}
 
-	maxNotes := req.Limit
-	if maxNotes > len(ranks) {
-		maxNotes = len(ranks)
+	maxHits := req.Limit
+	if maxHits > len(ranks) {
+		maxHits = len(ranks)
 	}
-	notes := make([]map[string]interface{}, 0, maxNotes)
-	for i := 0; i < maxNotes; i++ {
+	hits := make([]map[string]interface{}, 0, maxHits)
+	for i := 0; i < maxHits; i++ {
 		r := ranks[i]
 		// impl's state-store validates note_id pattern `^mem_[A-Za-z0-9_-]{8,}$`
 		// — corpus seeds use `mem_seed_0001`, which matches.
-		notes = append(notes, map[string]interface{}{
+		hits = append(hits, map[string]interface{}{
 			"note_id":               r.n.NoteID,
 			"summary":               r.n.Summary,
 			"data_class":            r.n.DataClass,
@@ -275,7 +275,7 @@ func (m *MemMock) handleSearch(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	atomic.AddInt64(&m.callCount, 1)
-	writeJSON(w, map[string]interface{}{"notes": notes})
+	writeJSON(w, map[string]interface{}{"hits": hits})
 }
 
 func recencyWeight(daysAgo int) float64 {
