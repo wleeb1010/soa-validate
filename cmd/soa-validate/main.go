@@ -191,12 +191,13 @@ func driveAuditRecordsWith(ctx context.Context, hc *http.Client, baseURL, sid, b
 const version = "0.1.0-week1"
 
 type config struct {
-	profile     string
-	runnerURL   string
-	specVectors string
-	out         string
-	implURL     string // SOA_IMPL_URL or --impl-url; if reachable, enables live path
-	adapter     string // --adapter=<name> per §18.5.5; empty = native Runner mode
+	profile       string
+	runnerURL     string
+	specVectors   string
+	out           string
+	implURL       string // SOA_IMPL_URL or --impl-url; if reachable, enables live path
+	adapter       string // --adapter=<name> per §18.5.5; empty = native Runner mode
+	memoryBackend string // --memory-backend=<name> per §8.7 (M5 L-56); default "mock"
 }
 
 // validAdapterNames lists the closed set of host frameworks recognized by
@@ -208,6 +209,20 @@ var validAdapterNames = map[string]bool{
 	"autogen":           true,
 	"langchain-agents":  true,
 	"custom":            true,
+}
+
+// validMemoryBackends is the closed set accepted by --memory-backend
+// per §8.7 (M5 L-56). "mock" is the default for the in-process Memory
+// MCP mock under internal/memmock; "sqlite", "mem0", "zep" are the
+// three reference backends shipping against M5. "custom" per
+// schemas/backend-conformance-report.schema.json is reserved for
+// adopter-authored backends and is accepted here as a valid label.
+var validMemoryBackends = map[string]bool{
+	"mock":   true,
+	"sqlite": true,
+	"mem0":   true,
+	"zep":    true,
+	"custom": true,
 }
 
 func main() {
@@ -227,10 +242,15 @@ func parseFlags(args []string) config {
 	fs.StringVar(&cfg.specVectors, "spec-vectors", "", "path to pinned spec repo (source of must-maps + test vectors)")
 	fs.StringVar(&cfg.out, "out", "release-gate.json", "output path for release-gate.json (JUnit XML written alongside)")
 	fs.StringVar(&cfg.adapter, "adapter", "", "host framework adapter to validate (§18.5.5): langgraph|crewai|autogen|langchain-agents|custom. Empty = native Runner mode.")
+	fs.StringVar(&cfg.memoryBackend, "memory-backend", "mock", "Memory MCP backend under test per §8.7 (M5 L-56): mock|sqlite|mem0|zep|custom. Labels the release-gate output; does not change test selection.")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Parse(args)
 	if cfg.adapter != "" && !validAdapterNames[cfg.adapter] {
 		fmt.Fprintf(os.Stderr, "soa-validate: invalid --adapter=%q; must be one of langgraph|crewai|autogen|langchain-agents|custom\n", cfg.adapter)
+		os.Exit(2)
+	}
+	if !validMemoryBackends[cfg.memoryBackend] {
+		fmt.Fprintf(os.Stderr, "soa-validate: invalid --memory-backend=%q; must be one of mock|sqlite|mem0|zep|custom\n", cfg.memoryBackend)
 		os.Exit(2)
 	}
 	if *showVersion {
@@ -323,18 +343,19 @@ func writeJUnit(path, profile string, results []testrunner.Result) error {
 }
 
 type releaseGate struct {
-	Tool                string      `json:"tool"`
-	Version             string      `json:"version"`
-	Profile             string      `json:"profile"`
-	ImplURL             string      `json:"impl_url"`
-	LivePath            bool        `json:"live_path_enabled"`
-	DeclaredAdapterMode string      `json:"declared_adapter_mode"` // --adapter value per §18.5.5; "" = native
-	Total               int         `json:"total"`
-	Passed              int         `json:"passed"`
-	Failed              int         `json:"failed"`
-	Skipped             int         `json:"skipped"`
-	Errored             int         `json:"errored"`
-	Results             []resultDTO `json:"results"`
+	Tool                 string      `json:"tool"`
+	Version              string      `json:"version"`
+	Profile              string      `json:"profile"`
+	ImplURL              string      `json:"impl_url"`
+	LivePath             bool        `json:"live_path_enabled"`
+	DeclaredAdapterMode  string      `json:"declared_adapter_mode"`  // --adapter value per §18.5.5; "" = native
+	MemoryBackend        string      `json:"memory_backend"`         // --memory-backend value per §8.7 (M5 L-56)
+	Total                int         `json:"total"`
+	Passed               int         `json:"passed"`
+	Failed               int         `json:"failed"`
+	Skipped              int         `json:"skipped"`
+	Errored              int         `json:"errored"`
+	Results              []resultDTO `json:"results"`
 }
 
 type resultDTO struct {
@@ -360,6 +381,7 @@ func writeReleaseGate(path string, cfg config, results []testrunner.Result, live
 		Tool: "soa-validate", Version: version, Profile: cfg.profile,
 		ImplURL: cfg.implURL, LivePath: live,
 		DeclaredAdapterMode: cfg.adapter,
+		MemoryBackend:       cfg.memoryBackend,
 		Total:               len(results),
 	}
 	for _, r := range results {
@@ -405,7 +427,8 @@ func summarize(w *os.File, cfg config, results []testrunner.Result, junitPath st
 	if cfg.adapter != "" {
 		adapterStr = cfg.adapter
 	}
-	fmt.Fprintf(w, "soa-validate %s — profile=%s impl=%s live=%s adapter=%s\n", version, cfg.profile, cfg.implURL, livestr, adapterStr)
+	fmt.Fprintf(w, "soa-validate %s — profile=%s impl=%s live=%s adapter=%s memory-backend=%s\n",
+		version, cfg.profile, cfg.implURL, livestr, adapterStr, cfg.memoryBackend)
 	var passed, failed, skipped, errored int
 	for _, r := range results {
 		switch r.Status {
