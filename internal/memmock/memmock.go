@@ -81,11 +81,18 @@ type MemMock struct {
 	tombSeq    int64
 }
 
-// addedNote holds an add_memory_note body for later read_memory_note / search
-// lookups. Includes created_at as RFC 3339 per §8.1.
+// addedNote holds an add_memory_note body for later read_memory_note /
+// search lookups. Post-L-58 the input surface uses `summary` + the new
+// required `data_class` + `session_id` fields; the internal record
+// keeps them so later reads can round-trip. read_memory_note still
+// surfaces the text under `note` over the wire (per unchanged §8.1
+// read signature), so the handler-level response builder maps
+// Summary → "note".
 type addedNote struct {
 	ID         string   `json:"id"`
-	Note       string   `json:"note"`
+	Summary    string   `json:"summary"`
+	DataClass  string   `json:"data_class"`
+	SessionID  string   `json:"session_id"`
 	Tags       []string `json:"tags"`
 	Importance float64  `json:"importance"`
 	CreatedAt  string   `json:"created_at"`
@@ -289,9 +296,17 @@ func recencyWeight(daysAgo int) float64 {
 	return w
 }
 
-// handleAddMemoryNote implements POST /add_memory_note per §8.1:
-// (note ≤16 KiB, tags ≤32 × ≤64 chars, importance 0.0–1.0) → (id, created_at).
-// Errors per §24: MemoryQuotaExceeded, MemoryDuplicate, MemoryMalformedInput.
+// handleAddMemoryNote implements POST /add_memory_note per §8.1
+// post-L-58 canonical signature:
+//   Request:  {summary, data_class, session_id, note_id?, tags?, importance?}
+//   Response: {note_id, created_at}
+//   Errors:   MemoryQuotaExceeded, MemoryDuplicate, MemoryMalformedInput,
+//             MemoryDeletionForbidden (data_class=sensitive-personal per §10.7.2)
+//
+// data_class valid enum per §8.1: {public, internal, confidential, personal}.
+// sensitive-personal triggers MemoryDeletionForbidden(sensitive-class-forbidden).
+// importance default is 0.5 when unset; pointer used so absence is distinguishable
+// from an explicit 0.0.
 func (m *MemMock) handleAddMemoryNote(w http.ResponseWriter, r *http.Request) {
 	m.logCall("add_memory_note")
 	if m.shouldTimeout() {
@@ -303,21 +318,49 @@ func (m *MemMock) handleAddMemoryNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Note       string   `json:"note"`
+		Summary    string   `json:"summary"`
+		DataClass  string   `json:"data_class"`
+		SessionID  string   `json:"session_id"`
+		NoteID     string   `json:"note_id"`
 		Tags       []string `json:"tags"`
-		Importance float64  `json:"importance"`
+		Importance *float64 `json:"importance"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
 		return
 	}
-	if len(req.Note) > 16*1024 {
+	if req.Summary == "" {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	if len(req.Summary) > 16*1024 {
 		writeJSON(w, map[string]interface{}{"error": "MemoryQuotaExceeded"})
 		return
 	}
-	if req.Importance < 0 || req.Importance > 1 {
+	// data_class: sensitive-personal is the explicit §10.7.2 forbidden
+	// value. Any other value outside the four-entry enum is malformed.
+	if req.DataClass == "sensitive-personal" {
+		writeJSON(w, map[string]interface{}{
+			"error":  "MemoryDeletionForbidden",
+			"reason": "sensitive-class-forbidden",
+		})
+		return
+	}
+	if !validDataClass(req.DataClass) {
 		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
 		return
+	}
+	if req.SessionID == "" {
+		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+		return
+	}
+	importance := 0.5
+	if req.Importance != nil {
+		importance = *req.Importance
+		if importance < 0 || importance > 1 {
+			writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
+			return
+		}
 	}
 	if len(req.Tags) > 32 {
 		writeJSON(w, map[string]interface{}{"error": "MemoryMalformedInput"})
@@ -329,17 +372,43 @@ func (m *MemMock) handleAddMemoryNote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	seq := atomic.AddInt64(&m.addSeq, 1)
-	id := fmt.Sprintf("mem_mock_added_%08d", seq)
+	// Caller-supplied note_id enables idempotency semantics. If it
+	// already exists in addedNotes, §8.1 mandates MemoryDuplicate.
+	id := req.NoteID
+	if id != "" {
+		m.addedMu.Lock()
+		_, exists := m.addedNotes[id]
+		m.addedMu.Unlock()
+		if exists {
+			writeJSON(w, map[string]interface{}{"error": "MemoryDuplicate"})
+			return
+		}
+	} else {
+		seq := atomic.AddInt64(&m.addSeq, 1)
+		id = fmt.Sprintf("mem_mock_added_%08d", seq)
+	}
 	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
 	m.addedMu.Lock()
 	m.addedNotes[id] = addedNote{
-		ID: id, Note: req.Note, Tags: req.Tags,
-		Importance: req.Importance, CreatedAt: createdAt,
+		ID:         id,
+		Summary:    req.Summary,
+		DataClass:  req.DataClass,
+		SessionID:  req.SessionID,
+		Tags:       req.Tags,
+		Importance: importance,
+		CreatedAt:  createdAt,
 	}
 	m.addedMu.Unlock()
 	atomic.AddInt64(&m.callCount, 1)
-	writeJSON(w, map[string]interface{}{"id": id, "created_at": createdAt})
+	writeJSON(w, map[string]interface{}{"note_id": id, "created_at": createdAt})
+}
+
+func validDataClass(c string) bool {
+	switch c {
+	case "public", "internal", "confidential", "personal":
+		return true
+	}
+	return false
 }
 
 // handleSearchByTime implements POST /search_memories_by_time per §8.1:
@@ -451,7 +520,7 @@ func (m *MemMock) handleReadMemoryNote(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&m.callCount, 1)
 		writeJSON(w, map[string]interface{}{
 			"id":          n.ID,
-			"note":        n.Note,
+			"note":        n.Summary,
 			"tags":        n.Tags,
 			"importance":  n.Importance,
 			"created_at":  n.CreatedAt,
