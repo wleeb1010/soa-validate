@@ -183,6 +183,14 @@ var Handlers = map[string]Handler{
 	"SV-AGENTS-07": handleSVAGENTS07,
 	"SV-AGENTS-08": handleSVAGENTS08,
 
+	// M4 kickoff (L-52) — §18.5 Adapter Conformance. SV-ADAPTER-01..04 are
+	// M4-milestone tests; they come into scope only when --adapter=<name> is
+	// supplied. See handlers_m4.go.
+	"SV-ADAPTER-01": handleSVADAPTER01,
+	"SV-ADAPTER-02": handleSVADAPTER02,
+	"SV-ADAPTER-03": handleSVADAPTER03,
+	"SV-ADAPTER-04": handleSVADAPTER04,
+
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
 	"SV-ENC-02":   handleSVENC02,
