@@ -196,6 +196,18 @@ type config struct {
 	specVectors string
 	out         string
 	implURL     string // SOA_IMPL_URL or --impl-url; if reachable, enables live path
+	adapter     string // --adapter=<name> per §18.5.5; empty = native Runner mode
+}
+
+// validAdapterNames lists the closed set of host frameworks recognized by
+// the --adapter flag per §18.5.5. Unknown values are rejected at parse time
+// with a usage error (exit 2).
+var validAdapterNames = map[string]bool{
+	"langgraph":         true,
+	"crewai":            true,
+	"autogen":           true,
+	"langchain-agents":  true,
+	"custom":            true,
 }
 
 func main() {
@@ -214,8 +226,13 @@ func parseFlags(args []string) config {
 	fs.StringVar(&cfg.implURL, "impl-url", "", "base URL of the sibling implementation Runner to validate against")
 	fs.StringVar(&cfg.specVectors, "spec-vectors", "", "path to pinned spec repo (source of must-maps + test vectors)")
 	fs.StringVar(&cfg.out, "out", "release-gate.json", "output path for release-gate.json (JUnit XML written alongside)")
+	fs.StringVar(&cfg.adapter, "adapter", "", "host framework adapter to validate (§18.5.5): langgraph|crewai|autogen|langchain-agents|custom. Empty = native Runner mode.")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Parse(args)
+	if cfg.adapter != "" && !validAdapterNames[cfg.adapter] {
+		fmt.Fprintf(os.Stderr, "soa-validate: invalid --adapter=%q; must be one of langgraph|crewai|autogen|langchain-agents|custom\n", cfg.adapter)
+		os.Exit(2)
+	}
 	if *showVersion {
 		fmt.Println("soa-validate", version)
 		os.Exit(0)
@@ -278,6 +295,7 @@ func run(cfg config) error {
 		Client:  client,
 		Spec:    specvec.New(cfg.specVectors),
 		Live:    live,
+		Adapter: cfg.adapter,
 	}, mm)
 
 	junitPath := strings.TrimSuffix(cfg.out, filepath.Ext(cfg.out)) + ".junit.xml"
@@ -305,17 +323,18 @@ func writeJUnit(path, profile string, results []testrunner.Result) error {
 }
 
 type releaseGate struct {
-	Tool       string      `json:"tool"`
-	Version    string      `json:"version"`
-	Profile    string      `json:"profile"`
-	ImplURL    string      `json:"impl_url"`
-	LivePath   bool        `json:"live_path_enabled"`
-	Total      int         `json:"total"`
-	Passed     int         `json:"passed"`
-	Failed     int         `json:"failed"`
-	Skipped    int         `json:"skipped"`
-	Errored    int         `json:"errored"`
-	Results    []resultDTO `json:"results"`
+	Tool                string      `json:"tool"`
+	Version             string      `json:"version"`
+	Profile             string      `json:"profile"`
+	ImplURL             string      `json:"impl_url"`
+	LivePath            bool        `json:"live_path_enabled"`
+	DeclaredAdapterMode string      `json:"declared_adapter_mode"` // --adapter value per §18.5.5; "" = native
+	Total               int         `json:"total"`
+	Passed              int         `json:"passed"`
+	Failed              int         `json:"failed"`
+	Skipped             int         `json:"skipped"`
+	Errored             int         `json:"errored"`
+	Results             []resultDTO `json:"results"`
 }
 
 type resultDTO struct {
@@ -339,7 +358,9 @@ type evidenceDTO struct {
 func writeReleaseGate(path string, cfg config, results []testrunner.Result, live bool) error {
 	g := releaseGate{
 		Tool: "soa-validate", Version: version, Profile: cfg.profile,
-		ImplURL: cfg.implURL, LivePath: live, Total: len(results),
+		ImplURL: cfg.implURL, LivePath: live,
+		DeclaredAdapterMode: cfg.adapter,
+		Total:               len(results),
 	}
 	for _, r := range results {
 		switch r.Status {
@@ -380,7 +401,11 @@ func summarize(w *os.File, cfg config, results []testrunner.Result, junitPath st
 	if live {
 		livestr = "on"
 	}
-	fmt.Fprintf(w, "soa-validate %s — profile=%s impl=%s live=%s\n", version, cfg.profile, cfg.implURL, livestr)
+	adapterStr := "native"
+	if cfg.adapter != "" {
+		adapterStr = cfg.adapter
+	}
+	fmt.Fprintf(w, "soa-validate %s — profile=%s impl=%s live=%s adapter=%s\n", version, cfg.profile, cfg.implURL, livestr, adapterStr)
 	var passed, failed, skipped, errored int
 	for _, r := range results {
 		switch r.Status {

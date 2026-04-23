@@ -38,9 +38,10 @@ var crlRefClock = time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
 type Handler func(ctx context.Context, h HandlerCtx) []Evidence
 
 type HandlerCtx struct {
-	Client *runner.Client
-	Spec   specvec.Locator
-	Live   bool // attempt live path when true
+	Client  *runner.Client
+	Spec    specvec.Locator
+	Live    bool   // attempt live path when true
+	Adapter string // --adapter=<name> per §18.5.5; empty = native Runner mode
 }
 
 // Handlers maps test IDs to their implementation.

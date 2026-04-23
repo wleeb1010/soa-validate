@@ -3,6 +3,7 @@ package testrunner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wleeb1010/soa-validate/internal/musmap"
@@ -16,6 +17,12 @@ type Config struct {
 	Client  *runner.Client
 	Spec    specvec.Locator
 	Live    bool
+	// Adapter: the --adapter=<name> flag value (§18.5.5). Empty = native
+	// Runner mode; SV-ADAPTER-* tests skip via M4-deferral. Non-empty
+	// ∈ {langgraph, crewai, autogen, langchain-agents, custom} — validated
+	// at CLI-parse time upstream; SV-ADAPTER-* tests become eligible via
+	// the per-test scope override in Run() below.
+	Adapter string
 	// MilestonesInScope: which implementation_milestone values to execute.
 	// Tests whose ImplMilestone is not in this set skip with the spec's
 	// deferral reason. Empty = default to {"", "M1", "M2"} (the current
@@ -37,7 +44,7 @@ func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
 		}
 	}
 	ordered := orderByPhase(ids, mm)
-	hctx := HandlerCtx{Client: cfg.Client, Spec: cfg.Spec, Live: cfg.Live}
+	hctx := HandlerCtx{Client: cfg.Client, Spec: cfg.Spec, Live: cfg.Live, Adapter: cfg.Adapter}
 	scope := cfg.MilestonesInScope
 	if scope == nil {
 		scope = DefaultMilestonesInScope()
@@ -53,8 +60,14 @@ func Run(ctx context.Context, cfg Config, mm *musmap.SVMustMap) []Result {
 		}
 		// Spec-authored deferral: tests with implementation_milestone
 		// outside the current scope skip with the spec's declared reason.
-		// Default scope is {M1, M2}; M3+ features stay deferred.
-		if _, inScope := scope[def.ImplMilestone]; !inScope {
+		// Default scope is {M1, M2, M3}; M4+ features stay deferred.
+		// Per-test override: SV-ADAPTER-* (M4) become eligible when the
+		// --adapter flag is supplied, per §18.5.5.
+		_, inScope := scope[def.ImplMilestone]
+		if !inScope && cfg.Adapter != "" && strings.HasPrefix(id, "SV-ADAPTER-") {
+			inScope = true
+		}
+		if !inScope {
 			results = append(results, Result{
 				ID: id, Name: def.Name, Section: def.Section,
 				Profile: def.Profile, Severity: def.Severity,
