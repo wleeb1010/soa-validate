@@ -229,7 +229,7 @@ var Handlers = map[string]Handler{
 	"SV-A2A-14": handleSVA2A14Skip,
 	"SV-A2A-15": handleSVA2A15Skip,
 	"SV-A2A-16": handleSVA2A16Skip,
-	"SV-A2A-17": handleSVA2A17Skip,
+	"SV-A2A-17": handleSVA2A17,
 
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
