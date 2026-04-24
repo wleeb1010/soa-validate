@@ -217,10 +217,18 @@ var Handlers = map[string]Handler{
 	"SV-COMPAT-07": handleSVCOMPAT07Skip,
 	"SV-COMPAT-08": handleSVCOMPAT08Skip,
 
-	// M9 W2 — §17.2.3 A2A capability advertisement + matching (v1.3).
-	// Handler wiring lands now; live probe promotes in W5 when the JWT
-	// profile stabilizes agent.describe signing. Until the pin bumps to
-	// a spec commit ≥ ff702f4 the entry is dormant.
+	// M9 W2-W5 — §17 Agent2Agent probes. All registered as skip-with-
+	// rationale citing the impl-unit-test that carries current coverage.
+	// Live promotion lands when the JWT + card-fetch test harness
+	// stabilises; pinned at v1.3.0 the must-map gains SV-A2A-15..17 so
+	// those entries become dispatch-reachable after the lock-bump.
+	"SV-A2A-10": handleSVA2A10Skip,
+	"SV-A2A-11": handleSVA2A11Skip,
+	"SV-A2A-12": handleSVA2A12Skip,
+	"SV-A2A-13": handleSVA2A13Skip,
+	"SV-A2A-14": handleSVA2A14Skip,
+	"SV-A2A-15": handleSVA2A15Skip,
+	"SV-A2A-16": handleSVA2A16Skip,
 	"SV-A2A-17": handleSVA2A17Skip,
 
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.

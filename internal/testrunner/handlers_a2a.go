@@ -20,6 +20,61 @@ import (
 	"fmt"
 )
 
+// SV-A2A-10 through SV-A2A-16: JWT profile + digest + HandoffStatus + deadlines
+// probes. Each returns skip-with-rationale until the SOA_A2A_* env vars that
+// enable a real probe run are set. Unit-test-level coverage for these
+// assertions lives in soa-harness-impl/packages/runner/test/a2a-{jwt,signer-
+// discovery,digest-check}.test.ts.
+
+func handleSVA2A10Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-10: JWT alg allowlist (EdDSA/ES256/RS256≥3072); live probe requires a cooperating Runner with JWT auth configured (SOA_A2A_BEARER + a JWT-capable verifier key). Unit coverage at packages/runner/test/a2a-jwt.test.ts (alg-outside-allowlist test).",
+	}}
+}
+
+func handleSVA2A11Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-11: JWT signing-key discovery via Agent-Card-kid and mTLS x5t#S256. Live probe requires a full §17.1 step-2 test harness with a caller agent publishing a valid /.well-known/agent-card.jws. Unit coverage at packages/runner/test/a2a-signer-discovery.test.ts (27 assertions covering both paths).",
+	}}
+}
+
+func handleSVA2A12Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-12: jti replay cache within exp+30s. Live probe requires two JWTs with identical jti crafted by a test caller; unit coverage at packages/runner/test/a2a-jwt.test.ts (replayed-jti test + signature-invalid-does-not-poison-cache test).",
+	}}
+}
+
+func handleSVA2A13Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-13: agent_card_etag drift → HandoffRejected reason=card-version-drift + CardVersionDrift event. Live probe requires a caller whose card is served at a reachable URL and a post-rotation fetch flow. Unit coverage at packages/runner/test/a2a-signer-discovery.test.ts (checkAgentCardEtagDrift match/drift/unreachable tests).",
+	}}
+}
+
+func handleSVA2A14Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-14: §17.2.5 per-method digest recompute matrix. Live probe requires an offer→transfer flow with deliberately-tampered messages/workflow; unit coverage at packages/runner/test/a2a-digest-check.test.ts (16 assertions covering the full matrix + JCS canonicalization invariance).",
+	}}
+}
+
+func handleSVA2A15Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-15: HandoffStatus enum closed-set + transition matrix. Live probe requires a handoff.status polling loop across the full transfer→execute→complete lifecycle. Unit coverage at packages/runner/test/a2a.test.ts (A2aTaskRegistry monotonicity tests).",
+	}}
+}
+
+func handleSVA2A16Skip(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{
+		Path: PathLive, Status: StatusSkip,
+		Message: "SV-A2A-16: §17.2.2 per-method deadlines + env-var overrides. Live probe requires booting a Runner with a specific SOA_A2A_*_DEADLINE_S env override and timing request round-trips; unit coverage at packages/runner/test/a2a.test.ts (resolveA2aDeadlines env-override tests).",
+	}}
+}
+
 // SV-A2A-17: §17.2.3 A2A capability advertisement and matching.
 //
 // Scope: exercise the 5 truth-table rows + the byte-exact reason string
