@@ -196,6 +196,18 @@ var Handlers = map[string]Handler{
 	"SV-ADAPTER-03": handleSVADAPTER03,
 	"SV-ADAPTER-04": handleSVADAPTER04,
 
+	// L-62 / M7 week 1 — §16.3 LLM Dispatcher schemas. SV-LLM-01..02 are
+	// vector-only probes against the new v1.1 schemas. SV-LLM-03..07 are
+	// live-path probes blocked on the impl /dispatch HTTP route (not yet
+	// shipped); registered with a skip marker so they show up in JUnit.
+	"SV-LLM-01": handleSVLLM01,
+	"SV-LLM-02": handleSVLLM02,
+	"SV-LLM-03": handleSVLLM03Skip,
+	"SV-LLM-04": handleSVLLM04Skip,
+	"SV-LLM-05": handleSVLLM05Skip,
+	"SV-LLM-06": handleSVLLM06Skip,
+	"SV-LLM-07": handleSVLLM07Skip,
+
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
 	"SV-ENC-02":   handleSVENC02,

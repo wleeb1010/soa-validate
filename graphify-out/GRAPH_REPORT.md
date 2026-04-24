@@ -1,11 +1,11 @@
-# Graph Report - C:\Users\wbrumbalow\Documents\Projects\soa-validate  (2026-04-22)
+# Graph Report - C:\Users\wbrumbalow\Documents\Projects\soa-validate  (2026-04-23)
 
 ## Corpus Check
-- 69 files · ~146,464 words
+- 71 files · ~153,047 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 398 nodes · 684 edges · 8 communities detected
+- 412 nodes · 699 edges · 9 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -16,6 +16,7 @@
 - [[_COMMUNITY_docsplansm3|"docs/plans/m3.md"]]
 - [[_COMMUNITY_CLAUDE|"CLAUDE.md"]]
 - [[_COMMUNITY_CONTEXT|"CONTEXT.md"]]
+- [[_COMMUNITY_docsm6credential-sweep-results|"docs/m6/credential-sweep-results.md"]]
 - [[_COMMUNITY_docsM1-EXIT-GATE|"docs/M1-EXIT-GATE.md"]]
 - [[_COMMUNITY_CONTRIBUTING|"CONTRIBUTING.md"]]
 
@@ -24,20 +25,20 @@
 2. `docs/plans/m3.md` - 42 edges
 3. `docs/plans/m2.md` - 29 edges
 4. `docs/M1-EXIT-GATE.md` - 15 edges
-5. `spec pin 654dc7b2698d… (current)` - 1 edges
-6. `spec pin c087a38d30d8…` - 1 edges
-7. `spec pin 5d3054562635…` - 1 edges
-8. `spec pin 782735c9c362…` - 1 edges
-9. `spec pin 177f211f78a3…` - 1 edges
-10. `spec pin eb5aedb2ab76…` - 1 edges
+5. `docs/m6/credential-sweep-results.md` - 2 edges
+6. `spec pin 45bd9df15227… (current)` - 1 edges
+7. `spec pin d71c83d631ae…` - 1 edges
+8. `spec pin 654dc7b2698d…` - 1 edges
+9. `spec pin c087a38d30d8…` - 1 edges
+10. `spec pin 5d3054562635…` - 1 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `docs/plans/m1.md` --cites_section--> `Spec §10.6`  [EXTRACTED]
   docs/plans/m1.md → spec-reference  _Bridges community 4 → community 2_
 - `docs/M1-EXIT-GATE.md` --references_test--> `SV-PERM-01`  [EXTRACTED]
-  docs/M1-EXIT-GATE.md → test-id  _Bridges community 4 → community 6_
+  docs/M1-EXIT-GATE.md → test-id  _Bridges community 4 → community 7_
 - `docs/M1-EXIT-GATE.md` --references_test--> `SV-SIGN-01`  [EXTRACTED]
-  docs/M1-EXIT-GATE.md → test-id  _Bridges community 5 → community 6_
+  docs/M1-EXIT-GATE.md → test-id  _Bridges community 5 → community 7_
 - `docs/plans/m1.md` --references_test--> `SV-SIGN-01`  [EXTRACTED]
   docs/plans/m1.md → test-id  _Bridges community 5 → community 2_
 - `docs/plans/m3.md` --references_test--> `SV-CARD-01`  [EXTRACTED]
@@ -47,11 +48,11 @@
 
 ### Community 0 - ""soa-validate.lock""
 Cohesion: 0.02
-Nodes (95): Finding AB, Finding AL, Finding AM, Finding AP, Finding AQ, Finding AR, Finding AS, Finding BA (+87 more)
+Nodes (100): Finding AC, Finding AE, Finding AI, Finding AL, Finding AM, Finding AP, Finding AQ, Finding AR (+92 more)
 
 ### Community 1 - ""STATUS.md""
 Cohesion: 0.02
-Nodes (228): Finding A, Finding AC, Finding AD, Finding AE, Finding AF, Finding AG, Finding AH, Finding AI (+220 more)
+Nodes (234): Finding A, Finding AB, Finding AD, Finding AF, Finding AG, Finding AH, Finding AJ, Finding AK (+226 more)
 
 ### Community 2 - ""docs/plans/m1.md""
 Cohesion: 0.08
@@ -67,18 +68,22 @@ Nodes (6): Spec §10, Spec §10.6, Spec §21.2, Spec §7.4, soa-harness=specific
 
 ### Community 5 - ""CONTEXT.md""
 Cohesion: 0.33
-Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, HR-02, HR-04, HR-12, SV-CARD-01 (+6 more)
+Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, SV-CARD-01, HR-02, SV-BOOT-01, HR-04 (+6 more)
 
-### Community 6 - ""docs/M1-EXIT-GATE.md""
+### Community 6 - ""docs/m6/credential-sweep-results.md""
+Cohesion: 0.67
+Nodes (3): docs/m6/credential-sweep-results.md, L-60, soa-harness=specification/scripts/filter-trufflehog.py
+
+### Community 7 - ""docs/M1-EXIT-GATE.md""
 Cohesion: 1.0
 Nodes (2): docs/M1-EXIT-GATE.md, L-24
 
-### Community 9 - ""CONTRIBUTING.md""
+### Community 10 - ""CONTRIBUTING.md""
 Cohesion: 0.0
 Nodes (0): 
 
 ## Knowledge Gaps
-- **37 isolated node(s):** `spec pin 654dc7b2698d… (current)`, `spec pin c087a38d30d8…`, `spec pin 5d3054562635…`, `spec pin 782735c9c362…`, `spec pin 177f211f78a3…` (+32 more)
+- **39 isolated node(s):** `spec pin 45bd9df15227… (current)`, `spec pin d71c83d631ae…`, `spec pin 654dc7b2698d…`, `spec pin c087a38d30d8…`, `spec pin 5d3054562635…` (+34 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **Thin community `"docs/M1-EXIT-GATE.md"`** (2 nodes): `docs/M1-EXIT-GATE.md`, `L-24`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -89,13 +94,13 @@ Nodes (0):
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `docs/plans/m1.md` connect `"docs/plans/m1.md"` to `"STATUS.md"`, `"docs/plans/m3.md"`, `"CLAUDE.md"`, `"CONTEXT.md"`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Why does `docs/plans/m3.md` connect `"docs/plans/m3.md"` to `"STATUS.md"`, `"CONTEXT.md"`?**
   _High betweenness centrality (0.016) - this node is a cross-community bridge._
 - **Why does `docs/plans/m2.md` connect `"docs/plans/m3.md"` to `"STATUS.md"`, `"CONTEXT.md"`?**
   _High betweenness centrality (0.003) - this node is a cross-community bridge._
-- **What connects `spec pin 654dc7b2698d… (current)`, `spec pin c087a38d30d8…`, `spec pin 5d3054562635…` to the rest of the system?**
-  _37 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **What connects `spec pin 45bd9df15227… (current)`, `spec pin d71c83d631ae…`, `spec pin 654dc7b2698d…` to the rest of the system?**
+  _39 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `"soa-validate.lock"` be split into smaller, more focused modules?**
   _Cohesion score 0.02 - nodes in this community are weakly interconnected._
 - **Should `"STATUS.md"` be split into smaller, more focused modules?**

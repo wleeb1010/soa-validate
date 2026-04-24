@@ -2610,6 +2610,31 @@
       "source_location": null
     },
     {
+      "id": "file_docs_m6_credential-sweep-results_md",
+      "label": "docs/m6/credential-sweep-results.md",
+      "file_type": "document",
+      "source_file": "docs/m6/credential-sweep-results.md",
+      "source_location": null
+    },
+    {
+      "id": "l_60",
+      "label": "L-60",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
+      "id": "xrepo_soa_harness_specification_scripts_filter_trufflehog_py",
+      "label": "soa-harness=specification/scripts/filter-trufflehog.py",
+      "file_type": "document",
+      "source_file": "cross-repo",
+      "source_location": null,
+      "citation_kind": "cross-repo",
+      "repo": "soa-harness=specification",
+      "path": "scripts/filter-trufflehog.py"
+    },
+    {
       "id": "file_docs_plans_m1_md",
       "label": "docs/plans/m1.md",
       "file_type": "document",
@@ -2684,6 +2709,30 @@
       "file_type": "document",
       "source_file": "soa-validate.lock",
       "source_location": null
+    },
+    {
+      "id": "spec_section_8_5",
+      "label": "Spec \u00a78.5",
+      "file_type": "document",
+      "source_file": "spec-reference",
+      "source_location": null,
+      "citation_kind": "spec-section"
+    },
+    {
+      "id": "spec_section_8_7",
+      "label": "Spec \u00a78.7",
+      "file_type": "document",
+      "source_file": "spec-reference",
+      "source_location": null,
+      "citation_kind": "spec-section"
+    },
+    {
+      "id": "spec_section_8_3",
+      "label": "Spec \u00a78.3",
+      "file_type": "document",
+      "source_file": "spec-reference",
+      "source_location": null,
+      "citation_kind": "spec-section"
     },
     {
       "id": "spec_section_14_6_1",
@@ -2862,8 +2911,56 @@
       "citation_kind": "finding"
     },
     {
+      "id": "l_58",
+      "label": "L-58",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
+      "id": "l_53",
+      "label": "L-53",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
+      "id": "l_57",
+      "label": "L-57",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
+      "id": "l_54",
+      "label": "L-54",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
       "id": "l_52",
       "label": "L-52",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
+      "id": "l_55",
+      "label": "L-55",
+      "file_type": "document",
+      "source_file": "spec-lentry",
+      "source_location": null,
+      "citation_kind": "spec-lentry"
+    },
+    {
+      "id": "l_56",
+      "label": "L-56",
       "file_type": "document",
       "source_file": "spec-lentry",
       "source_location": null,
@@ -2886,13 +2983,31 @@
       "citation_kind": "spec-lentry"
     },
     {
+      "id": "spec_pin_45bd9df1522723219624f53cef8fcec95dcc92c1",
+      "label": "spec pin 45bd9df15227\u2026 (current)",
+      "file_type": "document",
+      "source_file": "soa-validate.lock",
+      "source_location": null,
+      "sha": "45bd9df1522723219624f53cef8fcec95dcc92c1",
+      "status": "current"
+    },
+    {
+      "id": "spec_pin_d71c83d631ae22ae594fb9cb14bb1c0f254f90f1",
+      "label": "spec pin d71c83d631ae\u2026",
+      "file_type": "document",
+      "source_file": "soa-validate.lock",
+      "source_location": null,
+      "sha": "d71c83d631ae22ae594fb9cb14bb1c0f254f90f1",
+      "status": "historical"
+    },
+    {
       "id": "spec_pin_654dc7b2698d30bcbf7a4392503ba26c0ddd9c4b",
-      "label": "spec pin 654dc7b2698d\u2026 (current)",
+      "label": "spec pin 654dc7b2698d\u2026",
       "file_type": "document",
       "source_file": "soa-validate.lock",
       "source_location": null,
       "sha": "654dc7b2698d30bcbf7a4392503ba26c0ddd9c4b",
-      "status": "current"
+      "status": "historical"
     },
     {
       "id": "spec_pin_c087a38d30d8092d590a0cc7cd54d2f8a0ae2d66",
@@ -3437,7 +3552,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "line 21",
+      "source_location": "line 19",
       "weight": 1.0
     },
     {
@@ -22491,6 +22606,36 @@
       "weight": 1.0
     },
     {
+      "source": "file_docs_m6_credential-sweep-results_md",
+      "target": "l_60",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/m6/credential-sweep-results.md",
+      "source_location": "line 3",
+      "weight": 1.0
+    },
+    {
+      "source": "file_docs_m6_credential-sweep-results_md",
+      "target": "l_60",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/m6/credential-sweep-results.md",
+      "source_location": "line 35",
+      "weight": 1.0
+    },
+    {
+      "source": "file_docs_m6_credential-sweep-results_md",
+      "target": "xrepo_soa_harness_specification_scripts_filter_trufflehog_py",
+      "relation": "references_external_file",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/m6/credential-sweep-results.md",
+      "source_location": "line 23",
+      "weight": 1.0
+    },
+    {
       "source": "file_docs_plans_m1_md",
       "target": "spec_section_10_3_2",
       "relation": "cites_section",
@@ -25162,472 +25307,12 @@
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_14_6",
+      "target": "spec_section_8_1",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
       "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_6_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_6_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_6_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_18_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_18_5_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_18_5_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_18_5_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_18_5_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_18_5_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_6_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5_6",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 12",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 12",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_5_3_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5_7",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_6",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_5_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 15",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_5_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 15",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_7_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 16",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_6_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 17",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_5_3_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 18",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_5_3_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 18",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_5_3_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 18",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_3",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_11_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_9_2",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_6_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_7",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_1_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 21",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_8_4_1",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 21",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_7_318",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 22",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_8_1_541",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 22",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "spec_section_14_5_4",
-      "relation": "cites_section",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
       "weight": 1.0
     },
     {
@@ -25637,77 +25322,377 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 23",
+      "source_location": "line 10",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_14_5_2",
+      "target": "spec_section_10_7_2",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 24",
+      "source_location": "line 10",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_14_5_3",
+      "target": "spec_section_8_5",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 24",
+      "source_location": "line 10",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_14_1",
+      "target": "spec_section_8_1",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 25",
+      "source_location": "line 10",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_14_1",
+      "target": "spec_section_8_1",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 25",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_19_4",
+      "target": "spec_section_8_7",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 25",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_11_2_1",
+      "target": "spec_section_8_3",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 25",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_11_3_1",
+      "target": "spec_section_14_6",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 25",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_6_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_6_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_6_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_18_5",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_18_5_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_18_5_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_18_5_3",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_18_5_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_18_5_5",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_6_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_5_6",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_3",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_5_3_3",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_5_5",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_5_7",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_3",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_5",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_6",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_5_5",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 17",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_5_5",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 17",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_7_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 18",
       "weight": 1.0
     },
     {
@@ -25717,107 +25702,227 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 33",
+      "source_location": "line 19",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_3_1",
+      "target": "spec_section_5_3_3",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 34",
+      "source_location": "line 20",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5_2",
+      "target": "spec_section_5_3_3",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 35",
+      "source_location": "line 20",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_12_6",
+      "target": "spec_section_5_3_3",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 35",
+      "source_location": "line 20",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_5_3",
+      "target": "spec_section_10_3",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 36",
+      "source_location": "line 21",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_3_2",
+      "target": "spec_section_11_2",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 36",
+      "source_location": "line 21",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_12_1",
+      "target": "spec_section_9_2",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 36",
+      "source_location": "line 21",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_3_2",
+      "target": "spec_section_6_1",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 38",
+      "source_location": "line 21",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_3_2",
+      "target": "spec_section_10_7",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 39",
+      "source_location": "line 22",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_10_3_2",
+      "target": "spec_section_10_5",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 41",
+      "source_location": "line 22",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_section_8_3_1",
+      "target": "spec_section_10_5_4",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 42",
+      "source_location": "line 22",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_1_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 23",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_8_4_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 23",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_7_318",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 24",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_8_1_541",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 24",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_5_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_8_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_5_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_5_3",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_14_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_19_4",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_11_2_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
       "weight": 1.0
     },
     {
@@ -25827,7 +25932,97 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 42",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_6_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 35",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_3_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 36",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_5_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 37",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_12_6",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 37",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_5_3",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_3_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_12_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_3_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 40",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_3_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 41",
       "weight": 1.0
     },
     {
@@ -25842,12 +26037,42 @@
     },
     {
       "source": "file_soa-validate_lock",
+      "target": "spec_section_8_3_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_11_3_1",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
       "target": "spec_section_10_3_2",
       "relation": "cites_section",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 43",
+      "source_location": "line 45",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_section_10_3_2",
+      "relation": "cites_section",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 45",
       "weight": 1.0
     },
     {
@@ -25857,7 +26082,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 44",
+      "source_location": "line 46",
       "weight": 1.0
     },
     {
@@ -25867,7 +26092,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 44",
+      "source_location": "line 46",
       "weight": 1.0
     },
     {
@@ -25877,7 +26102,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 44",
+      "source_location": "line 46",
       "weight": 1.0
     },
     {
@@ -25887,7 +26112,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 44",
+      "source_location": "line 46",
       "weight": 1.0
     },
     {
@@ -25897,7 +26122,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 45",
+      "source_location": "line 47",
       "weight": 1.0
     },
     {
@@ -25907,7 +26132,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 45",
+      "source_location": "line 47",
       "weight": 1.0
     },
     {
@@ -25917,7 +26142,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 46",
+      "source_location": "line 48",
       "weight": 1.0
     },
     {
@@ -25927,7 +26152,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 46",
+      "source_location": "line 48",
       "weight": 1.0
     },
     {
@@ -25937,7 +26162,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 46",
+      "source_location": "line 48",
       "weight": 1.0
     },
     {
@@ -25947,667 +26172,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 46",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_adapter_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_adapter_02",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_adapter_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_adapter_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_adapter_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 10",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 12",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_14",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 12",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_16",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 12",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_06",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_17",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_08",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_12",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_13",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_09",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_16",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_06",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 15",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 15",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 15",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_reg_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 16",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_agents_08",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 16",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_boot_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 16",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_boot_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 18",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_card_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sign_02",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sign_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_card_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_priv_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_audit_records",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_21",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_priv_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_bud_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 21",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_11",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 21",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_bud_02",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 22",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_mem_06",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 22",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_mem_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_mem_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_mem_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_mem_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_mem_06",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_06",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_08",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_11",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_16",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_bud_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_hook_07",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_reg_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_hook_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_hook_07",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_02",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_obs",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 34",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 35",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_boot_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_card_01",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 37",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_22",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 39",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_21",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 40",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_22",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 41",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_gov_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 42",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_str_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 42",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_gov_09",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 42",
+      "source_location": "line 48",
       "weight": 1.0
     },
     {
@@ -26617,147 +26182,17 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 42",
+      "source_location": "line 10",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_20",
+      "target": "test_sv_reg_03",
       "relation": "references_test",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 43",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_21",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 43",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_03",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 44",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_07",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 44",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_08",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 44",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 44",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_02",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_08",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_09",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_10",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_sess_09",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_audit_sink",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 46",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_sv_perm_16",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 46",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
@@ -26767,7 +26202,817 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 49",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_adapter_02",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_adapter_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_adapter_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_adapter_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_14",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_16",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_06",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_17",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_08",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_12",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_13",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_09",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_16",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_06",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 17",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 17",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 17",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_reg_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 18",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_agents_08",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 18",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_boot_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 18",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_boot_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 20",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_card_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 21",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sign_02",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 21",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sign_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 21",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_card_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 21",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_priv_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 22",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_audit_records",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 22",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_21",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 22",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_priv_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 22",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_bud_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 23",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_11",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 23",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_bud_02",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 24",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_06",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 24",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_06",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_06",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_08",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_11",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_16",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_bud_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_hook_07",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_reg_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_hook_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_hook_07",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_02",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_obs",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 36",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 37",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_boot_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_card_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 39",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_22",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 41",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_21",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 42",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_22",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 43",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_gov_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_str_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_gov_09",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_mem_08",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_20",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 45",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_21",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 45",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_03",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_07",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_08",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_02",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_08",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_09",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_10",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_sess_09",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_audit_sink",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 48",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_perm_16",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 48",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_sv_adapter_01",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 51",
       "weight": 1.0
     },
     {
@@ -26777,7 +27022,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 14",
+      "source_location": "line 16",
       "weight": 1.0
     },
     {
@@ -26787,7 +27032,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 14",
+      "source_location": "line 16",
       "weight": 1.0
     },
     {
@@ -26797,7 +27042,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 20",
+      "source_location": "line 22",
       "weight": 1.0
     },
     {
@@ -26807,7 +27052,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 21",
+      "source_location": "line 23",
       "weight": 1.0
     },
     {
@@ -26817,7 +27062,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 32",
+      "source_location": "line 34",
       "weight": 1.0
     },
     {
@@ -26827,7 +27072,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 32",
+      "source_location": "line 34",
       "weight": 1.0
     },
     {
@@ -26837,7 +27082,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 32",
+      "source_location": "line 34",
       "weight": 1.0
     },
     {
@@ -26847,7 +27092,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 32",
+      "source_location": "line 34",
       "weight": 1.0
     },
     {
@@ -26857,7 +27102,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 36",
+      "source_location": "line 38",
       "weight": 1.0
     },
     {
@@ -26867,7 +27112,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 36",
+      "source_location": "line 38",
       "weight": 1.0
     },
     {
@@ -26877,26 +27122,6 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 42",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_hr_04",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 44",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "test_hr_05",
-      "relation": "references_test",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
       "source_location": "line 44",
       "weight": 1.0
     },
@@ -26907,7 +27132,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 45",
+      "source_location": "line 46",
       "weight": 1.0
     },
     {
@@ -26917,7 +27142,27 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 45",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_hr_04",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "test_hr_05",
+      "relation": "references_test",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
       "weight": 1.0
     },
     {
@@ -26927,7 +27172,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 13",
+      "source_location": "line 15",
       "weight": 1.0
     },
     {
@@ -26937,7 +27182,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 14",
+      "source_location": "line 16",
       "weight": 1.0
     },
     {
@@ -26947,7 +27192,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 14",
+      "source_location": "line 16",
       "weight": 1.0
     },
     {
@@ -26957,7 +27202,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 15",
+      "source_location": "line 17",
       "weight": 1.0
     },
     {
@@ -26967,7 +27212,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 17",
+      "source_location": "line 19",
       "weight": 1.0
     },
     {
@@ -26977,7 +27222,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 18",
+      "source_location": "line 20",
       "weight": 1.0
     },
     {
@@ -26987,7 +27232,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 18",
+      "source_location": "line 20",
       "weight": 1.0
     },
     {
@@ -26997,7 +27242,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 18",
+      "source_location": "line 20",
       "weight": 1.0
     },
     {
@@ -27007,7 +27252,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 19",
+      "source_location": "line 21",
       "weight": 1.0
     },
     {
@@ -27017,7 +27262,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 19",
+      "source_location": "line 21",
       "weight": 1.0
     },
     {
@@ -27027,7 +27272,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 20",
+      "source_location": "line 22",
       "weight": 1.0
     },
     {
@@ -27037,7 +27282,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 20",
+      "source_location": "line 22",
       "weight": 1.0
     },
     {
@@ -27047,7 +27292,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 21",
+      "source_location": "line 23",
       "weight": 1.0
     },
     {
@@ -27057,7 +27302,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 21",
+      "source_location": "line 23",
       "weight": 1.0
     },
     {
@@ -27067,7 +27312,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 43",
+      "source_location": "line 45",
       "weight": 1.0
     },
     {
@@ -27077,12 +27322,12 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 44",
+      "source_location": "line 46",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "l_52",
+      "target": "l_58",
       "relation": "references_lentry",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
@@ -27092,7 +27337,27 @@
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "l_51",
+      "target": "l_58",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 10",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_58",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 10",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_53",
       "relation": "references_lentry",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
@@ -27102,472 +27367,32 @@
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "l_50",
+      "target": "l_57",
       "relation": "references_lentry",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 12",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "l_49",
+      "target": "l_53",
       "relation": "references_lentry",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 12",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "l_49",
+      "target": "l_54",
       "relation": "references_lentry",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 13",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_48",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 14",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_47",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 15",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_46",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 16",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_46",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 16",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_44",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 17",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_43",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 18",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_42",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 19",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_41",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 20",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_40",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 21",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_39",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 22",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_38",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 23",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_36",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_37",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_36",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_37",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 24",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_35",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 25",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_01",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 33",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_10",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 35",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_11",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 35",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_12",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 35",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_13",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_15",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_16",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_17",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_18",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_18",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_19",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_20",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 36",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_21",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 37",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_22",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 38",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_23",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 39",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_24",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 40",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_26",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 41",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_24",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 41",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_34",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 42",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_32",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 43",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_31",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 43",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_31",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 44",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_29",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_30",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_29",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_30",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 45",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_27",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 46",
-      "weight": 1.0
-    },
-    {
-      "source": "file_soa-validate_lock",
-      "target": "l_28",
-      "relation": "references_lentry",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "soa-validate.lock",
-      "source_location": "line 46",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
@@ -27577,13 +27402,573 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",
-      "source_location": "line 49",
+      "source_location": "line 11",
       "weight": 1.0
     },
     {
       "source": "file_soa-validate_lock",
-      "target": "spec_pin_654dc7b2698d30bcbf7a4392503ba26c0ddd9c4b",
+      "target": "l_55",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 11",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_56",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 11",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_57",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 11",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_52",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_51",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 13",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_50",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_49",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 14",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_49",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_48",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 16",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_47",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 17",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_46",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 18",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_46",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 18",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_44",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 19",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_43",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 20",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_42",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 21",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_41",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 22",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_40",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 23",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_39",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 24",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_38",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 25",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_36",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_37",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_36",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_37",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 26",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_35",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 27",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_01",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 35",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_10",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 37",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_11",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 37",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_12",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 37",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_13",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_15",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_16",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_17",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_18",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_18",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_19",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_20",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 38",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_21",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 39",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_22",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 40",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_23",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 41",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_24",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 42",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_26",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 43",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_24",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 43",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_34",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 44",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_32",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 45",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_31",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 45",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_31",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_29",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_30",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_29",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_30",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 47",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_27",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 48",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_28",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 48",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_52",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 51",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "l_57",
+      "relation": "references_lentry",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": "line 51",
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_pin_45bd9df1522723219624f53cef8fcec95dcc92c1",
       "relation": "pins",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_pin_45bd9df1522723219624f53cef8fcec95dcc92c1",
+      "relation": "pin_history",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "soa-validate.lock",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "file_soa-validate_lock",
+      "target": "spec_pin_d71c83d631ae22ae594fb9cb14bb1c0f254f90f1",
+      "relation": "pin_history",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "soa-validate.lock",

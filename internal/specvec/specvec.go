@@ -146,4 +146,9 @@ const (
 	ToolRegistryM2Combined         = "test-vectors/tool-registry-m2/tools.json"
 	ToolRegistryM2CompliantOnly    = "test-vectors/tool-registry-m2/tools-compliant-only.json"
 	ToolRegistryM2NonCompliantOnly = "test-vectors/tool-registry-m2/tools-non-compliant-only.json"
+
+	// L-62 / M7 week 1 — §16.3 LLM dispatcher schemas (v1.1 minor addition).
+	LlmDispatchRequestSchema    = "schemas/llm-dispatch-request.schema.json"
+	LlmDispatchResponseSchema   = "schemas/llm-dispatch-response.schema.json"
+	DispatchRecentResponseSchema = "schemas/dispatch-recent-response.schema.json"
 )
