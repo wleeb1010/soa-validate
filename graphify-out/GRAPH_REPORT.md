@@ -5,7 +5,7 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 423 nodes · 712 edges · 9 communities detected
+- 425 nodes · 714 edges · 9 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -26,11 +26,11 @@
 3. `docs/plans/m2.md` - 29 edges
 4. `docs/M1-EXIT-GATE.md` - 15 edges
 5. `docs/m6/credential-sweep-results.md` - 2 edges
-6. `spec pin 68b34f181bcf… (current)` - 1 edges
-7. `spec pin 45bd9df15227…` - 1 edges
-8. `spec pin d71c83d631ae…` - 1 edges
-9. `spec pin 654dc7b2698d…` - 1 edges
-10. `spec pin c087a38d30d8…` - 1 edges
+6. `spec pin 2184a320595c… (current)` - 1 edges
+7. `spec pin 68b34f181bcf…` - 1 edges
+8. `spec pin 45bd9df15227…` - 1 edges
+9. `spec pin d71c83d631ae…` - 1 edges
+10. `spec pin 654dc7b2698d…` - 1 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `docs/plans/m1.md` --cites_section--> `Spec §10.6`  [EXTRACTED]
@@ -48,11 +48,11 @@
 
 ### Community 0 - ""soa-validate.lock""
 Cohesion: 0.02
-Nodes (107): Finding AE, Finding AJ, Finding AL, Finding AM, Finding AP, Finding AQ, Finding AR, Finding AS (+99 more)
+Nodes (108): Finding AL, Finding AM, Finding AP, Finding AQ, Finding AR, Finding BA, Finding BB, Finding J (+100 more)
 
 ### Community 1 - ""STATUS.md""
 Cohesion: 0.02
-Nodes (238): Finding A, Finding AB, Finding AC, Finding AD, Finding AF, Finding AG, Finding AH, Finding AI (+230 more)
+Nodes (239): Finding A, Finding AB, Finding AC, Finding AD, Finding AE, Finding AF, Finding AG, Finding AH (+231 more)
 
 ### Community 2 - ""docs/plans/m1.md""
 Cohesion: 0.08
@@ -83,7 +83,7 @@ Cohesion: 0.0
 Nodes (0): 
 
 ## Knowledge Gaps
-- **40 isolated node(s):** `spec pin 68b34f181bcf… (current)`, `spec pin 45bd9df15227…`, `spec pin d71c83d631ae…`, `spec pin 654dc7b2698d…`, `spec pin c087a38d30d8…` (+35 more)
+- **41 isolated node(s):** `spec pin 2184a320595c… (current)`, `spec pin 68b34f181bcf…`, `spec pin 45bd9df15227…`, `spec pin d71c83d631ae…`, `spec pin 654dc7b2698d…` (+36 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **Thin community `"docs/M1-EXIT-GATE.md"`** (2 nodes): `L-24`, `docs/M1-EXIT-GATE.md`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -97,8 +97,8 @@ _Questions this graph is uniquely positioned to answer:_
   _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Why does `docs/plans/m3.md` connect `"docs/plans/m3.md"` to `"STATUS.md"`, `"CONTEXT.md"`?**
   _High betweenness centrality (0.015) - this node is a cross-community bridge._
-- **What connects `spec pin 68b34f181bcf… (current)`, `spec pin 45bd9df15227…`, `spec pin d71c83d631ae…` to the rest of the system?**
-  _40 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **What connects `spec pin 2184a320595c… (current)`, `spec pin 68b34f181bcf…`, `spec pin 45bd9df15227…` to the rest of the system?**
+  _41 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `"soa-validate.lock"` be split into smaller, more focused modules?**
   _Cohesion score 0.02 - nodes in this community are weakly interconnected._
 - **Should `"STATUS.md"` be split into smaller, more focused modules?**
