@@ -266,11 +266,57 @@ func handleSVA2A10(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: "SV-A2A-10: alg=HS256 JWT rejected with -32051 reason=bad-alg before signature verify"}}
 }
 
-func handleSVA2A11Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-11: JWT signing-key discovery via Agent-Card-kid and mTLS x5t#S256. Live probe requires a full §17.1 step-2 test harness with a caller agent publishing a valid /.well-known/agent-card.jws. Unit coverage at packages/runner/test/a2a-signer-discovery.test.ts (27 assertions covering both paths).",
-	}}
+// SV-A2A-11: §17.1 step 2 signing-key discovery (Agent-Card-kid path) — LIVE.
+//
+// Sends one signed JWT and asserts the Runner successfully resolves the
+// signing key + verifies the signature (200 with a result member). The
+// mTLS x5t#S256 path (step 2 bullet 2) is out of Slice 5 scope — live
+// probing it requires a cooperating mTLS client cert harness.
+func handleSVA2A11(ctx context.Context, h HandlerCtx) []Evidence {
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-11: SOA_IMPL_URL unset"}}
+	}
+	aud := a2aJwtAudience()
+	priv, kid := loadA2aProbeEd25519Key()
+	if aud == "" || priv == nil {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-11: set SOA_A2A_AUDIENCE + SOA_A2A_PROBE_CALLER_KEY_PEM + SOA_A2A_PROBE_CALLER_KID (same env as SV-A2A-12) to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a-signer-discovery.test.ts (27 assertions)."}}
+	}
+	a2aURL := os.Getenv("SOA_A2A_URL")
+	if a2aURL == "" {
+		a2aURL = h.Client.BaseURL() + "/a2a/v1"
+	}
+	now := time.Now().Unix()
+	payload := baseA2aJwtPayload(aud, now, fmt.Sprintf("jti-sv-a2a-11-%d", now))
+	jwt, err := signA2aProbeJwt(priv, kid, payload)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-11: JWT sign: %v", err)}}
+	}
+	bodyReq := map[string]any{"jsonrpc": "2.0", "id": "11", "method": "agent.describe"}
+	bb, _ := json.Marshal(bodyReq)
+	req, _ := http.NewRequestWithContext(ctx, "POST", a2aURL, bytes.NewReader(bb))
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-11: rpc: %v", err)}}
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	var parsed map[string]any
+	if err := json.Unmarshal(rb, &parsed); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-11: non-JSON (status=%d): %s", resp.StatusCode, string(rb))}}
+	}
+	if _, ok := parsed["result"]; !ok {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-11: signed JWT not accepted — signing-key discovery failed. Response: %v", parsed)}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "SV-A2A-11: signed JWT accepted (Agent-Card-kid resolution succeeded per §17.1 step 2 first bullet)."}}
 }
 
 // SV-A2A-12: §17.1 step 3 jti replay cache — LIVE.
@@ -362,11 +408,65 @@ func handleSVA2A12(ctx context.Context, h HandlerCtx) []Evidence {
 		Message: "SV-A2A-12: replayed jti rejected with -32051 reason=jti-replay per §17.1 step 3"}}
 }
 
-func handleSVA2A13Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-13: agent_card_etag drift → HandoffRejected reason=card-version-drift + CardVersionDrift event. Live probe requires a caller whose card is served at a reachable URL and a post-rotation fetch flow. Unit coverage at packages/runner/test/a2a-signer-discovery.test.ts (checkAgentCardEtagDrift match/drift/unreachable tests).",
-	}}
+// SV-A2A-13: §17.1 step 4 agent_card_etag drift — LIVE.
+//
+// Signs a JWT whose agent_card_etag claim is a deliberately-stale
+// value ("sv-a2a-13-deliberately-stale"). Runner fetches the caller's
+// card, computes the real etag via §17.2.4 formula, mismatches,
+// rejects with -32051 reason=card-version-drift (byte-exact) per the
+// §17.1 step 4 normative clause (spec f4087a7).
+func handleSVA2A13(ctx context.Context, h HandlerCtx) []Evidence {
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-13: SOA_IMPL_URL unset"}}
+	}
+	aud := a2aJwtAudience()
+	priv, kid := loadA2aProbeEd25519Key()
+	if aud == "" || priv == nil {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-13: set SOA_A2A_AUDIENCE + SOA_A2A_PROBE_CALLER_KEY_PEM + SOA_A2A_PROBE_CALLER_KID (same env as SV-A2A-12) to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a-signer-discovery.test.ts (checkAgentCardEtagDrift match/drift/unreachable)."}}
+	}
+	a2aURL := os.Getenv("SOA_A2A_URL")
+	if a2aURL == "" {
+		a2aURL = h.Client.BaseURL() + "/a2a/v1"
+	}
+	now := time.Now().Unix()
+	payload := baseA2aJwtPayload(aud, now, fmt.Sprintf("jti-sv-a2a-13-%d", now))
+	payload["agent_card_etag"] = "\"sv-a2a-13-deliberately-stale\""
+	jwt, err := signA2aProbeJwt(priv, kid, payload)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-13: JWT sign: %v", err)}}
+	}
+	bodyReq := map[string]any{"jsonrpc": "2.0", "id": "13", "method": "agent.describe"}
+	bb, _ := json.Marshal(bodyReq)
+	req, _ := http.NewRequestWithContext(ctx, "POST", a2aURL, bytes.NewReader(bb))
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-13: rpc: %v", err)}}
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	var parsed map[string]any
+	if err := json.Unmarshal(rb, &parsed); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-13: non-JSON (status=%d): %s", resp.StatusCode, string(rb))}}
+	}
+	errObj, ok := parsed["error"].(map[string]any)
+	if !ok || int(coerceFloat(errObj["code"])) != -32051 {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-13: expected -32051 HandoffRejected for stale agent_card_etag; got %v", parsed)}}
+	}
+	data, _ := errObj["data"].(map[string]any)
+	if data["reason"] != "card-version-drift" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-13: expected reason=card-version-drift (byte-exact); got reason=%v", data["reason"])}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "SV-A2A-13: stale agent_card_etag → -32051 reason=card-version-drift per §17.1 step 4 (byte-exact match)"}}
 }
 
 // SV-A2A-14: §17.2.5 per-method digest recompute — LIVE.
