@@ -198,6 +198,8 @@ type config struct {
 	implURL       string // SOA_IMPL_URL or --impl-url; if reachable, enables live path
 	adapter       string // --adapter=<name> per §18.5.5; empty = native Runner mode
 	memoryBackend string // --memory-backend=<name> per §8.7 (M5 L-56); default "mock"
+	checkPins     bool   // L-62 — read own lock + /version, compare spec_commit_sha, exit
+	allowDrift    bool   // L-62 — in --check-pins mode, report drift but exit 0
 }
 
 // validAdapterNames lists the closed set of host frameworks recognized by
@@ -227,10 +229,130 @@ var validMemoryBackends = map[string]bool{
 
 func main() {
 	cfg := parseFlags(os.Args[1:])
+	if cfg.checkPins {
+		if err := runCheckPins(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "soa-validate --check-pins:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "soa-validate:", err)
 		os.Exit(1)
 	}
+}
+
+// runCheckPins reads this validator's own soa-validate.lock, hits the
+// running Runner's /version endpoint, and compares spec_commit_sha values.
+// Surfaces a clear pass/fail message and exits 0 on alignment, 1 on drift
+// (unless --allow-drift is set).
+func runCheckPins(cfg config) error {
+	if cfg.implURL == "" {
+		return fmt.Errorf("--impl-url (or SOA_IMPL_URL env) required; cannot check pins without a Runner to query")
+	}
+
+	// Find this validator's soa-validate.lock. Try cwd first, then alongside
+	// the executable, then one level up (spec-vectors root).
+	lockPath, err := findOwnLock(cfg.specVectors)
+	if err != nil {
+		return err
+	}
+	lockBytes, err := os.ReadFile(lockPath)
+	if err != nil {
+		return fmt.Errorf("read lock %s: %w", lockPath, err)
+	}
+	var lock struct {
+		SpecCommitSha string `json:"spec_commit_sha"`
+	}
+	if err := json.Unmarshal(lockBytes, &lock); err != nil {
+		return fmt.Errorf("parse lock %s: %w", lockPath, err)
+	}
+	if lock.SpecCommitSha == "" {
+		return fmt.Errorf("lock %s has no spec_commit_sha", lockPath)
+	}
+
+	// GET /version
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, cfg.implURL+"/version", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("GET %s/version: %w", cfg.implURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("GET %s/version → %d (expected 200)", cfg.implURL, resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	var v struct {
+		SoaHarnessVersion    string   `json:"soaHarnessVersion"`
+		SupportedCoreVersions []string `json:"supported_core_versions"`
+		RunnerVersion        string   `json:"runner_version"`
+		SpecCommitSha        string   `json:"spec_commit_sha"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return fmt.Errorf("parse /version body: %w", err)
+	}
+
+	fmt.Println("Pin alignment check")
+	fmt.Println("===================")
+	fmt.Printf("Validator lock          : %s\n", lockPath)
+	fmt.Printf("Validator spec commit   : %s\n", lock.SpecCommitSha)
+	fmt.Printf("Runner /version URL     : %s/version\n", cfg.implURL)
+	fmt.Printf("Runner runner_version   : %s\n", v.RunnerVersion)
+	fmt.Printf("Runner soaHarnessVersion: %s\n", v.SoaHarnessVersion)
+	if v.SpecCommitSha == "" {
+		fmt.Println()
+		fmt.Println("WARNING: Runner's /version response has NO spec_commit_sha field.")
+		fmt.Println("Either the Runner is older than spec 68b34f1 (v1.1 added this field) or")
+		fmt.Println("the governance.pinnedSpecCommit option wasn't wired through. Cannot verify")
+		fmt.Println("alignment. Upgrade the Runner to @soa-harness/runner@1.1+ or pass --allow-drift.")
+		if cfg.allowDrift {
+			return nil
+		}
+		return fmt.Errorf("cannot verify pin — Runner did not report spec_commit_sha")
+	}
+	fmt.Printf("Runner spec commit      : %s\n", v.SpecCommitSha)
+	fmt.Println()
+
+	if v.SpecCommitSha == lock.SpecCommitSha {
+		fmt.Println("OK - pins aligned. Validator and Runner were built against the same spec commit.")
+		return nil
+	}
+
+	fmt.Println("DRIFT DETECTED - validator and Runner pin to DIFFERENT spec commits.")
+	fmt.Printf("  validator: %s\n", lock.SpecCommitSha)
+	fmt.Printf("  runner:    %s\n", v.SpecCommitSha)
+	fmt.Println()
+	fmt.Println("A validator pinned to a different spec commit than the Runner under test is")
+	fmt.Println("diagnosing the wrong system. Bump either side so they align OR pass --allow-drift")
+	fmt.Println("if this is an intentional mid-bump window.")
+	if cfg.allowDrift {
+		return nil
+	}
+	return fmt.Errorf("pin drift between validator and Runner")
+}
+
+// findOwnLock locates this validator's soa-validate.lock by checking:
+//   1. <cwd>/soa-validate.lock (most common: `cd soa-validate && soa-validate ...`)
+//   2. <specVectors>/soa-validate.lock (when adopter uses the scaffold-shipped spec dir)
+//   3. <cwd>/../soa-validate/soa-validate.lock (sibling-repo convention)
+func findOwnLock(specVectors string) (string, error) {
+	candidates := []string{
+		"soa-validate.lock",
+	}
+	if specVectors != "" {
+		candidates = append(candidates, filepath.Join(specVectors, "soa-validate.lock"))
+	}
+	candidates = append(candidates, filepath.Join("..", "soa-validate", "soa-validate.lock"))
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			abs, _ := filepath.Abs(p)
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("soa-validate.lock not found in any of: %s", strings.Join(candidates, ", "))
 }
 
 func parseFlags(args []string) config {
@@ -243,6 +365,8 @@ func parseFlags(args []string) config {
 	fs.StringVar(&cfg.out, "out", "release-gate.json", "output path for release-gate.json (JUnit XML written alongside)")
 	fs.StringVar(&cfg.adapter, "adapter", "", "host framework adapter to validate (§18.5.5): langgraph|crewai|autogen|langchain-agents|custom. Empty = native Runner mode.")
 	fs.StringVar(&cfg.memoryBackend, "memory-backend", "mock", "Memory MCP backend under test per §8.7 (M5 L-56): mock|sqlite|mem0|zep|custom. Labels the release-gate output; does not change test selection.")
+	fs.BoolVar(&cfg.checkPins, "check-pins", false, "Read this validator's soa-validate.lock + hit <impl-url>/version, compare spec_commit_sha. Exits 1 on drift (0 with --allow-drift or on alignment).")
+	fs.BoolVar(&cfg.allowDrift, "allow-drift", false, "In --check-pins mode, report drift but exit 0. Useful for intentional mid-bump windows.")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Parse(args)
 	if cfg.adapter != "" && !validAdapterNames[cfg.adapter] {
