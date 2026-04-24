@@ -217,6 +217,12 @@ var Handlers = map[string]Handler{
 	"SV-COMPAT-07": handleSVCOMPAT07Skip,
 	"SV-COMPAT-08": handleSVCOMPAT08Skip,
 
+	// M9 W2 — §17.2.3 A2A capability advertisement + matching (v1.3).
+	// Handler wiring lands now; live probe promotes in W5 when the JWT
+	// profile stabilizes agent.describe signing. Until the pin bumps to
+	// a spec commit ≥ ff702f4 the entry is dormant.
+	"SV-A2A-17": handleSVA2A17Skip,
+
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
 	"SV-ENC-02":   handleSVENC02,
