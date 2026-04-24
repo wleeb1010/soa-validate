@@ -202,11 +202,11 @@ var Handlers = map[string]Handler{
 	// shipped); registered with a skip marker so they show up in JUnit.
 	"SV-LLM-01": handleSVLLM01,
 	"SV-LLM-02": handleSVLLM02,
-	"SV-LLM-03": handleSVLLM03Skip,
-	"SV-LLM-04": handleSVLLM04Skip,
+	"SV-LLM-03": handleSVLLM03,
+	"SV-LLM-04": handleSVLLM04,
 	"SV-LLM-05": handleSVLLM05Skip,
-	"SV-LLM-06": handleSVLLM06Skip,
-	"SV-LLM-07": handleSVLLM07Skip,
+	"SV-LLM-06": handleSVLLM06,
+	"SV-LLM-07": handleSVLLM07,
 
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
