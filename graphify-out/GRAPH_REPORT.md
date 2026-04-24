@@ -1,7 +1,7 @@
 # Graph Report - C:\Users\wbrumbalow\Documents\Projects\soa-validate  (2026-04-24)
 
 ## Corpus Check
-- 72 files · ~157,195 words
+- 72 files · ~157,271 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -56,27 +56,27 @@ Nodes (238): Finding A, Finding AB, Finding AC, Finding AD, Finding AF, Finding 
 
 ### Community 2 - ""docs/plans/m1.md""
 Cohesion: 0.08
-Nodes (25): docs/plans/m1.md, L-13, L-14, L-15, L-16, L-17, L-18, L-19 (+17 more)
+Nodes (25): L-13, L-14, L-15, L-16, L-17, L-18, L-19, L-21 (+17 more)
 
 ### Community 3 - ""docs/plans/m3.md""
 Cohesion: 0.11
-Nodes (21): docs/plans/m2.md, docs/plans/m3.md, L-20, L-28, L-34, Spec §10.5.1, Spec §11, Spec §11.3.1 (+13 more)
+Nodes (21): HR-03, L-20, L-28, L-34, Spec §10.5.1, Spec §11, Spec §11.3.1, Spec §12.5 (+13 more)
 
 ### Community 4 - ""CLAUDE.md""
 Cohesion: 0.33
-Nodes (6): Spec §10, Spec §10.6, Spec §21.2, Spec §7.4, soa-harness=specification/test-vectors/, SV-PERM-01
+Nodes (6): SV-PERM-01, Spec §10, Spec §10.6, Spec §21.2, Spec §7.4, soa-harness=specification/test-vectors/
 
 ### Community 5 - ""CONTEXT.md""
 Cohesion: 0.33
-Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, HR-01, SV-BOOT-01, SV-SESS-01, HR-04 (+6 more)
+Nodes (14): HR-01, HR-02, HR-04, HR-05, HR-12, HR-14, SV-BOOT-01, SV-CARD-01 (+6 more)
 
 ### Community 6 - ""L-60""
 Cohesion: 0.67
-Nodes (3): docs/m6/credential-sweep-results.md, L-60, soa-harness=specification/scripts/filter-trufflehog.py
+Nodes (3): L-60, docs/m6/credential-sweep-results.md, soa-harness=specification/scripts/filter-trufflehog.py
 
 ### Community 7 - ""docs/M1-EXIT-GATE.md""
 Cohesion: 1.0
-Nodes (2): docs/M1-EXIT-GATE.md, L-24
+Nodes (2): L-24, docs/M1-EXIT-GATE.md
 
 ### Community 10 - ""CONTRIBUTING.md""
 Cohesion: 0.0
@@ -85,7 +85,7 @@ Nodes (0):
 ## Knowledge Gaps
 - **40 isolated node(s):** `spec pin 68b34f181bcf… (current)`, `spec pin 45bd9df15227…`, `spec pin d71c83d631ae…`, `spec pin 654dc7b2698d…`, `spec pin c087a38d30d8…` (+35 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `"docs/M1-EXIT-GATE.md"`** (2 nodes): `docs/M1-EXIT-GATE.md`, `L-24`
+- **Thin community `"docs/M1-EXIT-GATE.md"`** (2 nodes): `L-24`, `docs/M1-EXIT-GATE.md`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `"CONTRIBUTING.md"`** (2 nodes): `CONTRIBUTING.md`, `COORDINATION.md`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
