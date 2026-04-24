@@ -586,11 +586,147 @@ func handleSVA2A14(ctx context.Context, h HandlerCtx) []Evidence {
 	return out
 }
 
-func handleSVA2A15Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-15: HandoffStatus enum closed-set + transition matrix. Live probe requires a handoff.status polling loop across the full transfer→execute→complete lifecycle. Unit coverage at packages/runner/test/a2a.test.ts (A2aTaskRegistry monotonicity tests).",
-	}}
+// SV-A2A-15: §17.2.1 HandoffStatus enum + transition matrix — LIVE (partial).
+//
+// Covers the transitions that are observable TODAY against the v1.3.0
+// reference Runner (which auto-transitions accepted → completed when
+// handoff.return fires; the accepted → executing → completed full
+// lifecycle requires a Runner-side slow-task fixture not yet shipped).
+//
+// Six assertions, each an independent Evidence row:
+//   (a) handoff.status on unknown task_id → HandoffStateIncompatible (-32052).
+//   (b) status after successful transfer → "accepted".
+//   (c) status enum value ∈ §17.2.1 closed-set {accepted, executing,
+//       completed, rejected, failed, timed-out}.
+//   (d) status response carries last_event_id key (string|null per enum row).
+//   (e) status after handoff.return → "completed".
+//   (f) terminal monotonicity: second status call after completed still
+//       returns "completed" (MUST NOT transition forward).
+//
+// Partial scope: the accepted → executing intermediate step is NOT
+// observable against the current Runner (which has no execute hook
+// wired). Closing that gap is Slice 6b — Runner-side work under L-70.
+func handleSVA2A15(ctx context.Context, h HandlerCtx) []Evidence {
+	a2aURL, bearer := a2aProbeEnv(h)
+	if a2aURL == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-15: set SOA_A2A_BEARER to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a.test.ts (A2aTaskRegistry monotonicity tests)."}}
+	}
+	validStatus := map[string]bool{
+		"accepted": true, "executing": true, "completed": true,
+		"rejected": true, "failed": true, "timed-out": true,
+	}
+	validDigest := "sha256:" + stringRepeat("a", 64)
+	out := []Evidence{}
+
+	// (a) Unknown task_id → HandoffStateIncompatible (-32052).
+	unknownID := fmt.Sprintf("t_sv_a2a_15_unknown_%d", time.Now().UnixNano())
+	body, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": unknownID}, "15a")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15 [unknown]: rpc: %v", err)})
+	} else if errObj, ok := body["error"].(map[string]any); !ok || int(coerceFloat(errObj["code"])) != -32052 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-15 [unknown task_id]: expected -32052 HandoffStateIncompatible; got %v", body)})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "SV-A2A-15 [unknown task_id] → -32052 HandoffStateIncompatible"})
+	}
+
+	// Setup: offer + transfer so the Runner has retained offer state + "accepted" status.
+	taskID := fmt.Sprintf("t_sv_a2a_15_flow_%d", time.Now().UnixNano())
+	messages := []any{map[string]any{"role": "user", "content": "probe"}}
+	workflow := map[string]any{"task_id": taskID, "status": "Handoff", "side_effects": []any{}}
+	msgDigest, _ := computeA2aDigest(messages)
+	wfDigest, _ := computeA2aDigest(workflow)
+	_, _, err = a2aRpc(ctx, a2aURL, bearer, "handoff.offer", map[string]any{
+		"task_id": taskID, "summary": "SV-A2A-15",
+		"messages_digest": msgDigest, "workflow_digest": wfDigest,
+		"capabilities_needed": []string{},
+	}, "15-offer")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15: setup offer rpc: %v", err)})
+		return out
+	}
+	_, _, err = a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
+		"task_id": taskID, "messages": messages, "workflow": workflow,
+		"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
+	}, "15-xfer")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15: setup transfer rpc: %v", err)})
+		return out
+	}
+
+	// (b + c + d) Status after transfer → accepted + enum membership + last_event_id key present.
+	body1, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": taskID}, "15b")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15 [status-after-transfer]: rpc: %v", err)})
+	} else if res, ok := body1["result"].(map[string]any); !ok {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-15 [status-after-transfer]: no result member: %v", body1)})
+	} else {
+		status, _ := res["status"].(string)
+		if status != "accepted" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-A2A-15 [status-after-transfer]: expected status=accepted; got %q", status)})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "SV-A2A-15 [status-after-transfer] → accepted"})
+		}
+		if !validStatus[status] {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-A2A-15 [enum membership]: observed status %q not in §17.2.1 closed-set", status)})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: fmt.Sprintf("SV-A2A-15 [enum membership]: %q ∈ §17.2.1 closed-set", status)})
+		}
+		if _, has := res["last_event_id"]; !has {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: "SV-A2A-15 [last_event_id key]: result missing required last_event_id field"})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "SV-A2A-15 [last_event_id key]: result carries last_event_id (string|null per §17.2.1)"})
+		}
+	}
+
+	// (e) handoff.return → status transitions to completed.
+	_, _, err = a2aRpc(ctx, a2aURL, bearer, "handoff.return", map[string]any{
+		"task_id": taskID, "result_digest": validDigest, "final_messages": []any{},
+	}, "15-return")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15 [return]: rpc: %v", err)})
+		return out
+	}
+	body2, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": taskID}, "15e")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15 [status-after-return]: rpc: %v", err)})
+	} else if res, ok := body2["result"].(map[string]any); !ok || res["status"] != "completed" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-15 [status-after-return]: expected status=completed; got %v", body2)})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "SV-A2A-15 [status-after-return] → completed"})
+	}
+
+	// (f) Terminal monotonicity: second status call still completed.
+	body3, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": taskID}, "15f")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-15 [terminal monotonicity]: rpc: %v", err)})
+	} else if res, ok := body3["result"].(map[string]any); !ok || res["status"] != "completed" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-15 [terminal monotonicity]: second status must still return completed; got %v", body3)})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "SV-A2A-15 [terminal monotonicity]: repeat handoff.status returns completed (§17.2.1 MUST)"})
+	}
+
+	return out
 }
 
 func handleSVA2A16Skip(ctx context.Context, h HandlerCtx) []Evidence {
