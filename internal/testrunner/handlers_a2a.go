@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,6 +30,46 @@ import (
 
 	"github.com/wleeb1010/soa-validate/internal/jcs"
 )
+
+// a2aJwtAudience returns the callee URL the JWT aud claim must equal.
+// If SOA_A2A_AUDIENCE is unset, JWT-mode probes skip.
+func a2aJwtAudience() string {
+	return os.Getenv("SOA_A2A_AUDIENCE")
+}
+
+// craftA2aJwt builds a compact JWT (header.payload.signature) with the
+// given protected header + payload. `signature` is the base64url-encoded
+// signature bytes — for probes that exercise pre-signature-verify failure
+// paths (alg-allowlist rejection, claim-shape rejection, jti replay,
+// key-not-found), the signature can be an arbitrary non-empty base64url
+// sequence since the Runner MUST reject before verify.
+func craftA2aJwt(header, payload map[string]any, signature string) (string, error) {
+	hb, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+	pb, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	enc := base64.RawURLEncoding
+	return enc.EncodeToString(hb) + "." + enc.EncodeToString(pb) + "." + signature, nil
+}
+
+// baseA2aJwtPayload returns a well-formed §17.1 JWT payload using the
+// given audience. iat/exp are set against the given `now` (unix seconds)
+// with a 60s lifetime well under the §17.1 300s cap.
+func baseA2aJwtPayload(aud string, now int64, jti string) map[string]any {
+	return map[string]any{
+		"iss":             "sv-a2a-probe-caller",
+		"sub":             "https://probe.caller.test.local",
+		"aud":             aud,
+		"iat":             now,
+		"exp":             now + 60,
+		"jti":             jti,
+		"agent_card_etag": "\"probe-etag-placeholder\"",
+	}
+}
 
 // computeA2aDigest returns the §17.2 digest of v as sha256:<64-hex-lowercase>.
 // Uses the same JCS library that guarantees byte-equivalence with the TS impl's
@@ -108,11 +149,68 @@ func a2aFetchCard(ctx context.Context, h HandlerCtx) (map[string]any, error) {
 // assertions lives in soa-harness-impl/packages/runner/test/a2a-{jwt,signer-
 // discovery,digest-check}.test.ts.
 
-func handleSVA2A10Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-10: JWT alg allowlist (EdDSA/ES256/RS256≥3072); live probe requires a cooperating Runner with JWT auth configured (SOA_A2A_BEARER + a JWT-capable verifier key). Unit coverage at packages/runner/test/a2a-jwt.test.ts (alg-outside-allowlist test).",
-	}}
+// SV-A2A-10: §17.1 step 1 JWT alg allowlist — LIVE.
+//
+// Crafts a JWT with header.alg="HS256" (not in the §17.1 allowlist of
+// {EdDSA, ES256, RS256≥3072}) + an otherwise well-formed payload. Sends
+// it as the Authorization: Bearer <jwt>. Expects HandoffRejected(-32051)
+// with reason=bad-alg because §17.1 step 1 rejects on alg BEFORE
+// signature verify or claim validation.
+//
+// No cooperating signing key required — the probe never gets past the
+// alg check. Skips cleanly when SOA_A2A_AUDIENCE is unset (Runner not
+// configured in JWT mode).
+func handleSVA2A10(ctx context.Context, h HandlerCtx) []Evidence {
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-10: SOA_IMPL_URL unset"}}
+	}
+	aud := a2aJwtAudience()
+	if aud == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-10: set SOA_A2A_AUDIENCE to activate the JWT-mode probe. Unit coverage at soa-harness-impl/packages/runner/test/a2a-jwt.test.ts (alg-outside-allowlist test)."}}
+	}
+	a2aURL := os.Getenv("SOA_A2A_URL")
+	if a2aURL == "" {
+		a2aURL = h.Client.BaseURL() + "/a2a/v1"
+	}
+	now := time.Now().Unix()
+	header := map[string]any{"alg": "HS256", "kid": "probe-bad-alg"}
+	payload := baseA2aJwtPayload(aud, now, fmt.Sprintf("jti-sv-a2a-10-%d", now))
+	jwt, err := craftA2aJwt(header, payload, "ZmFrZXNpZ25hdHVyZQ")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-10: JWT craft failed: %v", err)}}
+	}
+	body := map[string]any{"jsonrpc": "2.0", "id": "10", "method": "agent.describe"}
+	bb, _ := json.Marshal(body)
+	req, _ := http.NewRequestWithContext(ctx, "POST", a2aURL, bytes.NewReader(bb))
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-10: rpc transport error: %v", err)}}
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	var parsed map[string]any
+	if err := json.Unmarshal(rb, &parsed); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-10: non-JSON response (status=%d): %s", resp.StatusCode, string(rb))}}
+	}
+	errObj, ok := parsed["error"].(map[string]any)
+	if !ok || int(coerceFloat(errObj["code"])) != -32051 {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-10: expected -32051 HandoffRejected; got %v", parsed)}}
+	}
+	data, _ := errObj["data"].(map[string]any)
+	if data["reason"] != "bad-alg" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-10: expected reason=bad-alg; got %v", errObj)}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "SV-A2A-10: alg=HS256 JWT rejected with -32051 reason=bad-alg before signature verify"}}
 }
 
 func handleSVA2A11Skip(ctx context.Context, h HandlerCtx) []Evidence {

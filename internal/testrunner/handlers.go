@@ -223,7 +223,7 @@ var Handlers = map[string]Handler{
 	// with impl-unit-test-coverage rationale until their slices land.
 	"SV-A2A-03": handleSVA2A03,
 	"SV-A2A-04": handleSVA2A04,
-	"SV-A2A-10": handleSVA2A10Skip,
+	"SV-A2A-10": handleSVA2A10,
 	"SV-A2A-11": handleSVA2A11Skip,
 	"SV-A2A-12": handleSVA2A12Skip,
 	"SV-A2A-13": handleSVA2A13Skip,
