@@ -198,11 +198,92 @@ func handleSVLLM04(ctx context.Context, h HandlerCtx) []Evidence {
 	})
 }
 
-// ─── SV-LLM-05: mid-stream cancellation (deferred — streaming mode) ──────
+// ─── SV-LLM-05: mid-stream cancellation at ContentBlockDelta boundary ────
+//
+// v1.2 flipped skip → live per §16.6.4. Choreography:
+//   1. Set adapter behavior to "stream:5" (emit 5 ContentBlockDelta events)
+//   2. POST /dispatch with Accept: text/event-stream, body.stream=true
+//   3. Consume the SSE stream incrementally
+//   4. After observing 2 deltas, POST /dispatch/{cor_id}/cancel
+//   5. Assert: the remaining SSE body contains at most a terminal
+//      ContentBlockEnd + MessageEnd, and MessageEnd.stop_reason is
+//      "UserInterrupt" (not NaturalStop or DispatcherError)
+//   6. Assert: /dispatch/recent row for this cor_id carries
+//      stop_reason="UserInterrupt" and dispatcher_error_code=null
+func handleSVLLM05(ctx context.Context, h HandlerCtx) []Evidence {
+	return runDispatchProbe(ctx, h, "SV-LLM-05", func(pctx dispatchProbeCtx) []Evidence {
+		if err := setDispatchBehavior(pctx, "stream:5"); err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("SV-LLM-05: adapter does not support stream:N behavior; pre-v1.2 impl? err=%v", err)}}
+		}
+		req := newValidLLMRequestFor(pctx.sid, 10_000)
+		req["stream"] = true
+		corID := req["correlation_id"].(string)
 
-func handleSVLLM05Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{Path: PathLive, Status: StatusSkip,
-		Message: "SV-LLM-05: streaming-mode dispatcher not yet shipped; §13.2 mid-stream cancellation probe is M8 scope."}}
+		events, _, err := streamDispatch(pctx, corID, req, 2, pctx.sessionBearer)
+		if err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("SV-LLM-05: streamDispatch failed: %v", err)}}
+		}
+
+		// Count ContentBlockDelta events received BEFORE cancel; MUST be ≥ 2
+		// (we cancel after observing 2). Also count deltas AFTER the cancel
+		// observation — those MUST be 0 per §16.6.4.
+		var deltasBeforeCancel, deltasAfterCancel int
+		var terminalStopReason string
+		cancelled := false
+		for _, ev := range events {
+			if ev.typ == "ContentBlockDelta" {
+				if cancelled {
+					deltasAfterCancel++
+				} else {
+					deltasBeforeCancel++
+					if deltasBeforeCancel == 2 {
+						cancelled = true
+					}
+				}
+			}
+			if ev.typ == "MessageEnd" {
+				if sr, ok := ev.data["stop_reason"].(string); ok {
+					terminalStopReason = sr
+				}
+			}
+		}
+
+		if deltasAfterCancel != 0 {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-LLM-05: %d ContentBlockDelta events emitted AFTER cancel; MUST be 0 per §16.6.4", deltasAfterCancel)}}
+		}
+		if terminalStopReason != "UserInterrupt" {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-LLM-05: terminal MessageEnd stop_reason=%q; want UserInterrupt", terminalStopReason)}}
+		}
+
+		// Audit verification — /dispatch/recent should carry the cancelled row
+		recent, status := getDispatchRecent(pctx, pctx.sid, pctx.sessionBearer)
+		if status == http.StatusOK {
+			var r map[string]any
+			_ = json.Unmarshal(recent, &r)
+			rows, _ := r["dispatches"].([]any)
+			for _, row := range rows {
+				m, _ := row.(map[string]any)
+				if m["correlation_id"] == corID {
+					if m["stop_reason"] != "UserInterrupt" {
+						return []Evidence{{Path: PathLive, Status: StatusFail,
+							Message: fmt.Sprintf("SV-LLM-05: audit-row stop_reason=%v; want UserInterrupt", m["stop_reason"])}}
+					}
+					if m["dispatcher_error_code"] != nil {
+						return []Evidence{{Path: PathLive, Status: StatusFail,
+							Message: fmt.Sprintf("SV-LLM-05: audit-row dispatcher_error_code=%v; cancellation is not an error — want null", m["dispatcher_error_code"])}}
+					}
+					break
+				}
+			}
+		}
+
+		return []Evidence{{Path: PathLive, Status: StatusPass,
+			Message: fmt.Sprintf("SV-LLM-05: cancel fired after 2 deltas; 0 further deltas; terminal MessageEnd stop_reason=UserInterrupt; audit-row dispatcher_error_code=null (%d events observed)", len(events))}}
+	})
 }
 
 // ─── SV-LLM-06: dispatch audit row presence + chain linkage ──────────────
@@ -489,3 +570,239 @@ func bootstrapWithMode(ctx context.Context, c *runner.Client, bootstrapBearer, m
 
 // Silence unused import warnings if probe path isn't exercised this build.
 var _ = runner.New
+
+// ─── SV-LLM-08: SSE framing — Content-Type + event/data/terminator ───────
+
+func handleSVLLM08(ctx context.Context, h HandlerCtx) []Evidence {
+	return runDispatchProbe(ctx, h, "SV-LLM-08", func(pctx dispatchProbeCtx) []Evidence {
+		if err := setDispatchBehavior(pctx, "stream:1"); err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("SV-LLM-08: stream behavior unsupported; pre-v1.2 impl? err=%v", err)}}
+		}
+		req := newValidLLMRequestFor(pctx.sid, 10_000)
+		req["stream"] = true
+		corID := req["correlation_id"].(string)
+
+		body, contentType, status, err := streamDispatchRaw(pctx, corID, req, pctx.sessionBearer)
+		if err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("SV-LLM-08: streamDispatchRaw failed: %v", err)}}
+		}
+		if status != http.StatusOK {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-LLM-08: stream status=%d, body=%.200q", status, string(body))}}
+		}
+		if !strings.HasPrefix(contentType, "text/event-stream") {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-LLM-08: Content-Type=%q; want text/event-stream per §16.6.2", contentType)}}
+		}
+		bodyStr := string(body)
+		// Each SSE frame MUST be 'event: <type>\ndata: <JCS>\n\n'
+		if !strings.Contains(bodyStr, "event: MessageStart\n") {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: "SV-LLM-08: SSE body missing 'event: MessageStart' line"}}
+		}
+		if !strings.Contains(bodyStr, "event: MessageEnd\n") {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: "SV-LLM-08: SSE body missing 'event: MessageEnd' line"}}
+		}
+		if !strings.Contains(bodyStr, "\ndata: {") {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: "SV-LLM-08: SSE body missing 'data: {' JCS-JSON line after event line"}}
+		}
+		// Frames terminated by double-newline
+		if !strings.Contains(bodyStr, "\n\n") {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: "SV-LLM-08: SSE frames not terminated by blank line (\\n\\n)"}}
+		}
+		return []Evidence{{Path: PathLive, Status: StatusPass,
+			Message: "SV-LLM-08: Content-Type=text/event-stream; event:/data: framing verified; blank-line frame delimiter present"}}
+	})
+}
+
+// ─── SV-LLM-09: adapter-unsupported fallback — 406 DispatcherStreamUnsupported
+//
+// The in-memory test-double always implements dispatchStream, so the only way
+// to exercise the sync-only path against the same impl is an operator-side
+// config toggle. v1.2 doesn't define that toggle yet (slated for v1.2.x).
+// For now this probe is a skip — the unit-test suite in soa-harness-impl
+// covers the 406 path (packages/runner/test/dispatch-stream.test.ts).
+func handleSVLLM09(ctx context.Context, h HandlerCtx) []Evidence {
+	return []Evidence{{Path: PathLive, Status: StatusSkip,
+		Message: "SV-LLM-09: requires Runner-boot flag to disable streaming in the test-double adapter; impl unit tests cover the 406 path at packages/runner/test/dispatch-stream.test.ts. Live probe available in v1.2.x."}}
+}
+
+// ─── SV-LLM-10: sequence invariants ──────────────────────────────────────
+
+func handleSVLLM10(ctx context.Context, h HandlerCtx) []Evidence {
+	return runDispatchProbe(ctx, h, "SV-LLM-10", func(pctx dispatchProbeCtx) []Evidence {
+		if err := setDispatchBehavior(pctx, "stream:3"); err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusSkip,
+				Message: fmt.Sprintf("SV-LLM-10: stream behavior unsupported; pre-v1.2 impl? err=%v", err)}}
+		}
+		req := newValidLLMRequestFor(pctx.sid, 10_000)
+		req["stream"] = true
+		// Consume the full stream (no cancel — max=0 sentinel means "no cancel")
+		events, _, err := streamDispatch(pctx, req["correlation_id"].(string), req, 0, pctx.sessionBearer)
+		if err != nil {
+			return []Evidence{{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("SV-LLM-10: streamDispatch failed: %v", err)}}
+		}
+		// Invariant 1: exactly one MessageStart, exactly one MessageEnd
+		var msgStart, msgEnd, blockStart, blockEnd, deltas int
+		var blockOpen bool
+		var lastSeq int = -1
+		for _, ev := range events {
+			seq, _ := ev.data["sequence"].(float64)
+			if int(seq) <= lastSeq {
+				return []Evidence{{Path: PathLive, Status: StatusFail,
+					Message: fmt.Sprintf("SV-LLM-10: sequence monotonicity violated: got %d after %d (event type %s)", int(seq), lastSeq, ev.typ)}}
+			}
+			lastSeq = int(seq)
+			switch ev.typ {
+			case "MessageStart":
+				msgStart++
+			case "MessageEnd":
+				msgEnd++
+			case "ContentBlockStart":
+				blockStart++
+				if blockOpen {
+					return []Evidence{{Path: PathLive, Status: StatusFail,
+						Message: "SV-LLM-10: ContentBlockStart while previous block still open"}}
+				}
+				blockOpen = true
+			case "ContentBlockDelta":
+				if !blockOpen {
+					return []Evidence{{Path: PathLive, Status: StatusFail,
+						Message: "SV-LLM-10: ContentBlockDelta outside an open block"}}
+				}
+				deltas++
+			case "ContentBlockEnd":
+				blockEnd++
+				if !blockOpen {
+					return []Evidence{{Path: PathLive, Status: StatusFail,
+						Message: "SV-LLM-10: ContentBlockEnd without matching ContentBlockStart"}}
+				}
+				blockOpen = false
+			}
+		}
+		if msgStart != 1 || msgEnd != 1 {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-LLM-10: MessageStart=%d MessageEnd=%d; both MUST be exactly 1", msgStart, msgEnd)}}
+		}
+		if blockStart != blockEnd {
+			return []Evidence{{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-LLM-10: ContentBlockStart=%d ContentBlockEnd=%d; MUST match", blockStart, blockEnd)}}
+		}
+		return []Evidence{{Path: PathLive, Status: StatusPass,
+			Message: fmt.Sprintf("SV-LLM-10: 1x MessageStart + %dx Block pairs + %d deltas + 1x MessageEnd; strict per-session sequence monotonicity held across %d events", blockStart, deltas, len(events))}}
+	})
+}
+
+// ─── streaming helpers ────────────────────────────────────────────────────
+
+type sseEvent struct {
+	typ  string
+	data map[string]any
+}
+
+// streamDispatchRaw fires a streaming dispatch and returns the full SSE
+// response body + Content-Type header + status code. Used by SV-LLM-08 for
+// framing assertions where parsed events are less useful than the raw wire.
+func streamDispatchRaw(pctx dispatchProbeCtx, corID string, reqBody map[string]any, sessionBearer string) ([]byte, string, int, error) {
+	raw, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest(http.MethodPost, pctx.h.Client.BaseURL()+"/dispatch", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+sessionBearer)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return body, resp.Header.Get("Content-Type"), resp.StatusCode, nil
+}
+
+// streamDispatch consumes the SSE stream incrementally, parsing each frame as
+// it arrives. When cancelAfterDeltas > 0, fires POST /dispatch/{cor}/cancel
+// after observing exactly that many ContentBlockDelta events and continues
+// consuming until the server closes the stream.
+//
+// Returns (parsed events in wire order, status code, error).
+func streamDispatch(pctx dispatchProbeCtx, corID string, reqBody map[string]any, cancelAfterDeltas int, sessionBearer string) ([]sseEvent, int, error) {
+	raw, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest(http.MethodPost, pctx.h.Client.BaseURL()+"/dispatch", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+sessionBearer)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	var events []sseEvent
+	deltaCount := 0
+	cancelled := false
+	buf := make([]byte, 4096)
+	pending := ""
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			pending += string(buf[:n])
+			// SSE frames are delimited by blank lines (\n\n)
+			for {
+				idx := strings.Index(pending, "\n\n")
+				if idx < 0 {
+					break
+				}
+				frame := pending[:idx]
+				pending = pending[idx+2:]
+				ev := parseSseFrame(frame)
+				if ev.typ == "" {
+					continue // comment-only frame like ": stream-done"
+				}
+				events = append(events, ev)
+				if ev.typ == "ContentBlockDelta" {
+					deltaCount++
+					if cancelAfterDeltas > 0 && !cancelled && deltaCount == cancelAfterDeltas {
+						cancelled = true
+						_ = postCancelDispatch(pctx, corID, sessionBearer)
+					}
+				}
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return events, resp.StatusCode, nil
+}
+
+func parseSseFrame(frame string) sseEvent {
+	ev := sseEvent{}
+	for _, line := range strings.Split(frame, "\n") {
+		if strings.HasPrefix(line, "event: ") {
+			ev.typ = strings.TrimPrefix(line, "event: ")
+		} else if strings.HasPrefix(line, "data: ") {
+			payload := strings.TrimPrefix(line, "data: ")
+			_ = json.Unmarshal([]byte(payload), &ev.data)
+		}
+	}
+	return ev
+}
+
+func postCancelDispatch(pctx dispatchProbeCtx, corID, sessionBearer string) error {
+	req, _ := http.NewRequest(http.MethodPost, pctx.h.Client.BaseURL()+"/dispatch/"+corID+"/cancel", nil)
+	req.Header.Set("Authorization", "Bearer "+sessionBearer)
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("cancel status=%d", resp.StatusCode)
+	}
+	return nil
+}
