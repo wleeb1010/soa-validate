@@ -31,9 +31,29 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Validator outputs (CI emits these to disk; never committed)
+# Validator outputs (CI emits these to disk; never committed).
+# Any `*-gate*.json` or `*-gate*.junit.xml` at repo root is a run artifact —
+# named variants like adapter-gate.json, phase0d-gate.json, rc2-native-gate.json,
+# gate3-mem0.json get produced during development-time regression sweeps.
 /release-gate.json
 /release-gate.junit.xml
+/*-gate*.json
+/*-gate*.junit.xml
+/phase*.json
+/phase*.junit.xml
+/gate*.json
+/gate*.junit.xml
+/rc*.json
+/rc*.junit.xml
+/native-*.json
+/native-*.junit.xml
+/pin-final.json
+/pin-final.junit.xml
+/adapter-demo.log
+/rc*.log
+
+# CodeGraphContext local config (per-checkout, never committed)
+.cgcignore
 
 # Per-session local state (Claude Code)
 .claude/
