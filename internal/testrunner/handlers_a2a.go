@@ -18,10 +18,13 @@ package testrunner
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +33,56 @@ import (
 
 	"github.com/wleeb1010/soa-validate/internal/jcs"
 )
+
+// loadA2aProbeEd25519Key parses an Ed25519 private key from the PEM at
+// SOA_A2A_PROBE_CALLER_KEY_PEM. Returns (nil, "", "") when the env var
+// is unset so callers can cleanly skip.
+func loadA2aProbeEd25519Key() (ed25519.PrivateKey, string) {
+	keyPath := os.Getenv("SOA_A2A_PROBE_CALLER_KEY_PEM")
+	if keyPath == "" {
+		return nil, ""
+	}
+	kid := os.Getenv("SOA_A2A_PROBE_CALLER_KID")
+	if kid == "" {
+		return nil, ""
+	}
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, ""
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, ""
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, ""
+	}
+	priv, ok := parsed.(ed25519.PrivateKey)
+	if !ok {
+		return nil, ""
+	}
+	return priv, kid
+}
+
+// signA2aProbeJwt signs a compact JWS with EdDSA over the caller's
+// Ed25519 key. header.alg + header.kid are set; caller supplies the
+// payload. Returns the compact JWT string.
+func signA2aProbeJwt(priv ed25519.PrivateKey, kid string, payload map[string]any) (string, error) {
+	header := map[string]any{"alg": "EdDSA", "kid": kid}
+	hb, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+	pb, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	enc := base64.RawURLEncoding
+	signingInput := enc.EncodeToString(hb) + "." + enc.EncodeToString(pb)
+	sig := ed25519.Sign(priv, []byte(signingInput))
+	return signingInput + "." + enc.EncodeToString(sig), nil
+}
 
 // a2aJwtAudience returns the callee URL the JWT aud claim must equal.
 // If SOA_A2A_AUDIENCE is unset, JWT-mode probes skip.
@@ -220,11 +273,93 @@ func handleSVA2A11Skip(ctx context.Context, h HandlerCtx) []Evidence {
 	}}
 }
 
-func handleSVA2A12Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-12: jti replay cache within exp+30s. Live probe requires two JWTs with identical jti crafted by a test caller; unit coverage at packages/runner/test/a2a-jwt.test.ts (replayed-jti test + signature-invalid-does-not-poison-cache test).",
-	}}
+// SV-A2A-12: §17.1 step 3 jti replay cache — LIVE.
+//
+// Sends the same signed JWT twice within the exp+30s retention window.
+// First send MUST succeed (200 OK with the agent.describe result);
+// second send MUST be rejected with -32051 HandoffRejected reason=
+// jti-replay per §17.1 step 3's register-only-after-verify invariant.
+//
+// Requires a cooperating signing key — the Runner under test must be
+// configured with a resolver that returns the validator's Ed25519
+// public key for the kid specified. Conformance-test convention:
+//   SOA_A2A_PROBE_CALLER_KEY_PEM  — Ed25519 private key PEM (PKCS#8)
+//   SOA_A2A_PROBE_CALLER_KID       — kid the Runner resolver accepts
+//   SOA_A2A_AUDIENCE               — callee URL; JWT aud claim target
+// Skips cleanly when any of those are unset.
+func handleSVA2A12(ctx context.Context, h HandlerCtx) []Evidence {
+	if !h.Live {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-12: SOA_IMPL_URL unset"}}
+	}
+	aud := a2aJwtAudience()
+	priv, kid := loadA2aProbeEd25519Key()
+	if aud == "" || priv == nil {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-12: set SOA_A2A_AUDIENCE + SOA_A2A_PROBE_CALLER_KEY_PEM (Ed25519 PKCS#8 PEM) + SOA_A2A_PROBE_CALLER_KID (kid the Runner resolver accepts) to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a-jwt.test.ts (replayed-jti test)."}}
+	}
+	a2aURL := os.Getenv("SOA_A2A_URL")
+	if a2aURL == "" {
+		a2aURL = h.Client.BaseURL() + "/a2a/v1"
+	}
+	now := time.Now().Unix()
+	jti := fmt.Sprintf("jti-sv-a2a-12-replay-%d", now)
+	payload := baseA2aJwtPayload(aud, now, jti)
+	jwt, err := signA2aProbeJwt(priv, kid, payload)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-12: JWT sign: %v", err)}}
+	}
+
+	// Send twice. Either (a) both attempts succeed (jti cache not enforced —
+	// fail the probe) or (b) first succeeds + second rejects with jti-replay
+	// (pass) or (c) first fails (something upstream is wrong — error, not fail).
+	bodyReq := map[string]any{"jsonrpc": "2.0", "id": "12", "method": "agent.describe"}
+	bb, _ := json.Marshal(bodyReq)
+
+	doCall := func() (map[string]any, error) {
+		req, _ := http.NewRequestWithContext(ctx, "POST", a2aURL, bytes.NewReader(bb))
+		req.Header.Set("Authorization", "Bearer "+jwt)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		rb, _ := io.ReadAll(resp.Body)
+		var parsed map[string]any
+		if err := json.Unmarshal(rb, &parsed); err != nil {
+			return nil, fmt.Errorf("non-JSON (status=%d): %s", resp.StatusCode, string(rb))
+		}
+		return parsed, nil
+	}
+
+	first, err := doCall()
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-12: first call: %v", err)}}
+	}
+	if _, hasResult := first["result"]; !hasResult {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-12: first call did not succeed — probe needs a working cooperating key (verify SOA_A2A_PROBE_CALLER_* env matches Runner resolver). Response: %v", first)}}
+	}
+	second, err := doCall()
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-12: second call: %v", err)}}
+	}
+	errObj, ok := second["error"].(map[string]any)
+	if !ok || int(coerceFloat(errObj["code"])) != -32051 {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-12: replayed JWT was accepted (expected -32051 jti-replay); got %v", second)}}
+	}
+	data, _ := errObj["data"].(map[string]any)
+	if data["reason"] != "jti-replay" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-12: replayed JWT rejected with -32051 but reason=%v (expected jti-replay)", data["reason"])}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "SV-A2A-12: replayed jti rejected with -32051 reason=jti-replay per §17.1 step 3"}}
 }
 
 func handleSVA2A13Skip(ctx context.Context, h HandlerCtx) []Evidence {
