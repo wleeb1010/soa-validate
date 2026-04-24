@@ -713,6 +713,82 @@ func handleSVA2A15(ctx context.Context, h HandlerCtx) []Evidence {
 			Message: "SV-A2A-15 [status-after-return] → completed"})
 	}
 
+	// (g) §17.2.2.1 execute-hook intermediate transition (activated by the
+	// SOA_A2A_PROBE_EXECUTE_HOOK_N_S env var — matches the Runner's
+	// SOA_A2A_AUTO_EXECUTE_AFTER_S value). When set, the probe waits N+1
+	// seconds past transfer-accept, asserts status=='executing', then
+	// waits another N seconds, asserts status=='completed'. Skips this
+	// specific assertion when the env is unset — preserves the
+	// partial-scope flag semantics on Runners that haven't enabled the
+	// test hook.
+	//
+	// NOTE: this assertion runs on a SEPARATE fresh task_id (not taskID)
+	// because the earlier handoff.return path already transitioned
+	// taskID to completed. We need a task where the hook gets the
+	// chance to fire without competing with explicit return.
+	if hookStr := os.Getenv("SOA_A2A_PROBE_EXECUTE_HOOK_N_S"); hookStr != "" {
+		var hookN int
+		if _, err := fmt.Sscanf(hookStr, "%d", &hookN); err == nil && hookN > 0 && hookN <= 30 {
+			hookTaskID := fmt.Sprintf("t_sv_a2a_15_hook_%d", time.Now().UnixNano())
+			hookWf := map[string]any{"task_id": hookTaskID, "status": "Handoff", "side_effects": []any{}}
+			hookMsgDigest, _ := computeA2aDigest(messages)
+			hookWfDigest, _ := computeA2aDigest(hookWf)
+			if _, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.offer", map[string]any{
+				"task_id": hookTaskID, "summary": "execute-hook probe",
+				"messages_digest": hookMsgDigest, "workflow_digest": hookWfDigest,
+				"capabilities_needed": []string{},
+			}, "15g-offer"); err != nil {
+				out = append(out, Evidence{Path: PathLive, Status: StatusError,
+					Message: fmt.Sprintf("SV-A2A-15 [execute-hook]: offer rpc: %v", err)})
+			} else if _, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
+				"task_id": hookTaskID, "messages": messages, "workflow": hookWf,
+				"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
+			}, "15g-xfer"); err != nil {
+				out = append(out, Evidence{Path: PathLive, Status: StatusError,
+					Message: fmt.Sprintf("SV-A2A-15 [execute-hook]: transfer rpc: %v", err)})
+			} else {
+				// Wait past N-second mark, assert executing.
+				select {
+				case <-time.After(time.Duration(hookN+1) * time.Second):
+				case <-ctx.Done():
+					out = append(out, Evidence{Path: PathLive, Status: StatusError,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook executing]: ctx cancelled: %v", ctx.Err())})
+					return out
+				}
+				bExec, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": hookTaskID}, "15g-exec")
+				if err != nil {
+					out = append(out, Evidence{Path: PathLive, Status: StatusError,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook executing]: rpc: %v", err)})
+				} else if res, ok := bExec["result"].(map[string]any); !ok || res["status"] != "executing" {
+					out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook executing]: expected status=executing at N+1s; got %v (is SOA_A2A_AUTO_EXECUTE_AFTER_S=%d set on Runner?)", bExec, hookN)})
+				} else {
+					out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook executing]: accepted→executing observed at N+1s (N=%d)", hookN)})
+				}
+				// Wait another N seconds, assert completed.
+				select {
+				case <-time.After(time.Duration(hookN) * time.Second):
+				case <-ctx.Done():
+					out = append(out, Evidence{Path: PathLive, Status: StatusError,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook completed]: ctx cancelled: %v", ctx.Err())})
+					return out
+				}
+				bDone, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": hookTaskID}, "15g-done")
+				if err != nil {
+					out = append(out, Evidence{Path: PathLive, Status: StatusError,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook completed]: rpc: %v", err)})
+				} else if res, ok := bDone["result"].(map[string]any); !ok || res["status"] != "completed" {
+					out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook completed]: expected status=completed at 2N+1s; got %v", bDone)})
+				} else {
+					out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+						Message: fmt.Sprintf("SV-A2A-15 [execute-hook completed]: executing→completed observed at 2N+1s (N=%d)", hookN)})
+				}
+			}
+		}
+	}
+
 	// (f) Terminal monotonicity: second status call still completed.
 	body3, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": taskID}, "15f")
 	if err != nil {
