@@ -209,6 +209,14 @@ var Handlers = map[string]Handler{
 	"SV-LLM-09": handleSVLLM09, // M8 — adapter-unsupported fallback (v1.2)
 	"SV-LLM-10": handleSVLLM10, // M8 — sequence invariants (v1.2)
 
+	// M8 W5-6 — v1.2 compat probes. 05/06 hit /version live; 07/08 need
+	// paired v1.1 + v1.2 Runners so they're registered skip-level with an
+	// "impl unit test covers" rationale.
+	"SV-COMPAT-05": handleSVCOMPAT05,
+	"SV-COMPAT-06": handleSVCOMPAT06,
+	"SV-COMPAT-07": handleSVCOMPAT07Skip,
+	"SV-COMPAT-08": handleSVCOMPAT08Skip,
+
 	// M3 Week 4 (V-10) — §1 ENC + §4 PRIN + §5.1 STACK + §5.4 OPS policy block.
 	"SV-ENC-01":   handleSVENC01,
 	"SV-ENC-02":   handleSVENC02,
