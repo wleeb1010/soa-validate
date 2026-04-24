@@ -1,4 +1,4 @@
-# Graph Report - C:\Users\wbrumbalow\Documents\Projects\soa-validate  (2026-04-23)
+# Graph Report - C:\Users\wbrumbalow\Documents\Projects\soa-validate  (2026-04-24)
 
 ## Corpus Check
 - 72 files · ~157,195 words
@@ -68,7 +68,7 @@ Nodes (6): Spec §10, Spec §10.6, Spec §21.2, Spec §7.4, soa-harness=specific
 
 ### Community 5 - ""CONTEXT.md""
 Cohesion: 0.33
-Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, SV-SESS-01, HR-05, HR-02, SV-CARD-01 (+6 more)
+Nodes (14): Spec §19.1.1, soa-harness-impl/packages/core/test/parity/, soa-harness-impl/packages/runner/src/budget/tracker.ts, soa-harness-specification/test-vectors, HR-01, SV-BOOT-01, SV-SESS-01, HR-04 (+6 more)
 
 ### Community 6 - ""L-60""
 Cohesion: 0.67
