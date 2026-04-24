@@ -227,7 +227,7 @@ var Handlers = map[string]Handler{
 	"SV-A2A-11": handleSVA2A11Skip,
 	"SV-A2A-12": handleSVA2A12Skip,
 	"SV-A2A-13": handleSVA2A13Skip,
-	"SV-A2A-14": handleSVA2A14Skip,
+	"SV-A2A-14": handleSVA2A14,
 	"SV-A2A-15": handleSVA2A15Skip,
 	"SV-A2A-16": handleSVA2A16Skip,
 	"SV-A2A-17": handleSVA2A17,

@@ -18,13 +18,29 @@ package testrunner
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/wleeb1010/soa-validate/internal/jcs"
 )
+
+// computeA2aDigest returns the §17.2 digest of v as sha256:<64-hex-lowercase>.
+// Uses the same JCS library that guarantees byte-equivalence with the TS impl's
+// canonicalize output — mismatches here are spec bugs, not transport artifacts.
+func computeA2aDigest(v any) (string, error) {
+	canonical, err := jcs.Canonicalize(v)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
 
 // ─── A2A live-probe helpers (§17 wire, bearer auth) ───────────────────────
 
@@ -120,11 +136,123 @@ func handleSVA2A13Skip(ctx context.Context, h HandlerCtx) []Evidence {
 	}}
 }
 
-func handleSVA2A14Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-14: §17.2.5 per-method digest recompute matrix. Live probe requires an offer→transfer flow with deliberately-tampered messages/workflow; unit coverage at packages/runner/test/a2a-digest-check.test.ts (16 assertions covering the full matrix + JCS canonicalization invariance).",
-	}}
+// SV-A2A-14: §17.2.5 per-method digest recompute — LIVE.
+//
+// Offer-then-transfer flow exercising the handoff.transfer row of the
+// §17.2.5 matrix against a real Runner. Three assertions:
+//   1. Matching-digest transfer → accept.
+//   2. Tampered-messages transfer (same task_id, different payload) →
+//      HandoffRejected(reason=digest-mismatch).
+//   3. Never-seen task_id transfer → HandoffRejected(reason=workflow-
+//      state-incompatible) (§17.2.5 restart-crash observability row).
+//
+// Each uses a fresh task_id per subtest so offer-state retention
+// doesn't cross-contaminate.
+func handleSVA2A14(ctx context.Context, h HandlerCtx) []Evidence {
+	a2aURL, bearer := a2aProbeEnv(h)
+	if a2aURL == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-14: set SOA_A2A_BEARER to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a-digest-check.test.ts (16 assertions across the §17.2.5 matrix)."}}
+	}
+
+	messages := []any{map[string]any{"role": "user", "content": "hello"}}
+	workflow := map[string]any{"task_id": "t_sv_a2a_14", "status": "Handoff", "side_effects": []any{}}
+	msgDigest, err := computeA2aDigest(messages)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-14: JCS canonicalize messages: %v", err)}}
+	}
+	wfDigest, err := computeA2aDigest(workflow)
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-14: JCS canonicalize workflow: %v", err)}}
+	}
+
+	out := []Evidence{}
+
+	// Assertion 1: offer-then-transfer with matching digests → accept.
+	taskID1 := fmt.Sprintf("t_sv_a2a_14_accept_%d", time.Now().UnixNano())
+	wf1 := map[string]any{"task_id": taskID1, "status": "Handoff", "side_effects": []any{}}
+	wf1Digest, _ := computeA2aDigest(wf1)
+	_, _, err = a2aRpc(ctx, a2aURL, bearer, "handoff.offer", map[string]any{
+		"task_id": taskID1, "summary": "accept probe",
+		"messages_digest": msgDigest, "workflow_digest": wf1Digest,
+		"capabilities_needed": []string{},
+	}, "14a-offer")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-14 [accept]: offer rpc error: %v", err)})
+	} else {
+		body, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
+			"task_id": taskID1, "messages": messages, "workflow": wf1,
+			"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
+		}, "14a-xfer")
+		if err != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("SV-A2A-14 [accept]: transfer rpc error: %v", err)})
+		} else if res, ok := body["result"].(map[string]any); !ok || res["destination_session_id"] == nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-A2A-14 [accept]: expected result.destination_session_id; got %v", body)})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "SV-A2A-14 [accept]: matching-digest transfer accepted"})
+		}
+	}
+
+	// Assertion 2: offer with correct digest, transfer tampered messages → digest-mismatch.
+	taskID2 := fmt.Sprintf("t_sv_a2a_14_tamper_%d", time.Now().UnixNano())
+	wf2 := map[string]any{"task_id": taskID2, "status": "Handoff", "side_effects": []any{}}
+	wf2Digest, _ := computeA2aDigest(wf2)
+	_, _, err = a2aRpc(ctx, a2aURL, bearer, "handoff.offer", map[string]any{
+		"task_id": taskID2, "summary": "tamper probe",
+		"messages_digest": msgDigest, "workflow_digest": wf2Digest,
+		"capabilities_needed": []string{},
+	}, "14b-offer")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-14 [tamper]: offer rpc error: %v", err)})
+	} else {
+		tampered := []any{map[string]any{"role": "user", "content": "TAMPERED"}}
+		body, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
+			"task_id": taskID2, "messages": tampered, "workflow": wf2,
+			"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
+		}, "14b-xfer")
+		if err != nil {
+			out = append(out, Evidence{Path: PathLive, Status: StatusError,
+				Message: fmt.Sprintf("SV-A2A-14 [tamper]: transfer rpc error: %v", err)})
+		} else if errObj, ok := body["error"].(map[string]any); !ok || int(coerceFloat(errObj["code"])) != -32051 {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-A2A-14 [tamper]: expected -32051 HandoffRejected; got %v", body)})
+		} else if data, _ := errObj["data"].(map[string]any); data["reason"] != "digest-mismatch" {
+			out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+				Message: fmt.Sprintf("SV-A2A-14 [tamper]: expected reason=digest-mismatch; got %v", errObj)})
+		} else {
+			out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+				Message: "SV-A2A-14 [tamper]: tampered-messages transfer → -32051 reason=digest-mismatch"})
+		}
+	}
+
+	// Assertion 3: transfer for never-seen task_id → workflow-state-incompatible.
+	neverSeen := fmt.Sprintf("t_sv_a2a_14_neverseen_%d", time.Now().UnixNano())
+	body3, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
+		"task_id": neverSeen, "messages": messages, "workflow": workflow,
+		"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
+	}, "14c-xfer")
+	if err != nil {
+		out = append(out, Evidence{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-14 [never-seen]: rpc error: %v", err)})
+	} else if errObj, ok := body3["error"].(map[string]any); !ok || int(coerceFloat(errObj["code"])) != -32051 {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-14 [never-seen]: expected -32051 HandoffRejected; got %v", body3)})
+	} else if data, _ := errObj["data"].(map[string]any); data["reason"] != "workflow-state-incompatible" {
+		out = append(out, Evidence{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-14 [never-seen]: expected reason=workflow-state-incompatible; got %v", errObj)})
+	} else {
+		out = append(out, Evidence{Path: PathLive, Status: StatusPass,
+			Message: "SV-A2A-14 [never-seen]: no-offer-state transfer → -32051 reason=workflow-state-incompatible"})
+	}
+
+	return out
 }
 
 func handleSVA2A15Skip(ctx context.Context, h HandlerCtx) []Evidence {
