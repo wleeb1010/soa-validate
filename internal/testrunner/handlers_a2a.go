@@ -729,11 +729,83 @@ func handleSVA2A15(ctx context.Context, h HandlerCtx) []Evidence {
 	return out
 }
 
-func handleSVA2A16Skip(ctx context.Context, h HandlerCtx) []Evidence {
-	return []Evidence{{
-		Path: PathLive, Status: StatusSkip,
-		Message: "SV-A2A-16: §17.2.2 per-method deadlines + env-var overrides. Live probe requires booting a Runner with a specific SOA_A2A_*_DEADLINE_S env override and timing request round-trips; unit coverage at packages/runner/test/a2a.test.ts (resolveA2aDeadlines env-override tests).",
-	}}
+// SV-A2A-16: §17.2.2 task-execution deadline → timed-out transition — LIVE.
+//
+// Requires the Runner under test to be booted with
+// SOA_A2A_TASK_DEADLINE_S=<small> (typically 1-5s for CI-friendly
+// probe cadence). Probe flow:
+//   1. Offer + transfer a task (status → accepted).
+//   2. Sleep past the configured deadline (SOA_A2A_PROBE_DEADLINE_
+//      SLEEP_S or a safe default of 4 s).
+//   3. handoff.status → expect 'timed-out' per §17.2.2 enforcement
+//      clause ('Runners serving as destinations MUST enforce it').
+//
+// The probe does NOT itself configure the Runner's deadline; it
+// assumes cooperation from the test harness. SOA_A2A_PROBE_DEADLINE_
+// SLEEP_S lets operators tune the probe for their configured
+// SOA_A2A_TASK_DEADLINE_S value; default 4 s covers the conventional
+// 2 s CI setting with margin.
+func handleSVA2A16(ctx context.Context, h HandlerCtx) []Evidence {
+	a2aURL, bearer := a2aProbeEnv(h)
+	if a2aURL == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-16: set SOA_A2A_BEARER (and boot Runner with SOA_A2A_TASK_DEADLINE_S=<small>) to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a-digest-check.test.ts (6 A2aTaskRegistry §17.2.2 enforcement tests)."}}
+	}
+	sleepS := 4
+	if s := os.Getenv("SOA_A2A_PROBE_DEADLINE_SLEEP_S"); s != "" {
+		var n int
+		_, err := fmt.Sscanf(s, "%d", &n)
+		if err == nil && n > 0 && n <= 120 {
+			sleepS = n
+		}
+	}
+
+	taskID := fmt.Sprintf("t_sv_a2a_16_deadline_%d", time.Now().UnixNano())
+	messages := []any{map[string]any{"role": "user", "content": "deadline-probe"}}
+	workflow := map[string]any{"task_id": taskID, "status": "Handoff", "side_effects": []any{}}
+	msgDigest, _ := computeA2aDigest(messages)
+	wfDigest, _ := computeA2aDigest(workflow)
+
+	if _, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.offer", map[string]any{
+		"task_id": taskID, "summary": "deadline-probe",
+		"messages_digest": msgDigest, "workflow_digest": wfDigest,
+		"capabilities_needed": []string{},
+	}, "16-offer"); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-16: offer rpc: %v", err)}}
+	}
+	if _, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
+		"task_id": taskID, "messages": messages, "workflow": workflow,
+		"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
+	}, "16-xfer"); err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-16: transfer rpc: %v", err)}}
+	}
+
+	select {
+	case <-time.After(time.Duration(sleepS) * time.Second):
+	case <-ctx.Done():
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-16: context cancelled during %ds sleep: %v", sleepS, ctx.Err())}}
+	}
+
+	body, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.status", map[string]any{"task_id": taskID}, "16-status")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-16: status rpc: %v", err)}}
+	}
+	res, ok := body["result"].(map[string]any)
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-16: status result missing: %v", body)}}
+	}
+	status, _ := res["status"].(string)
+	if status != "timed-out" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-16: expected status=timed-out after %ds past deadline; got %q (ensure Runner booted with SOA_A2A_TASK_DEADLINE_S=<value < %d>)", sleepS, status, sleepS)}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("SV-A2A-16: handoff.status → 'timed-out' after %ds elapsed past §17.2.2 task-execution deadline", sleepS)}}
 }
 
 // SV-A2A-03: §17.2.4 agent.describe result envelope — LIVE.
