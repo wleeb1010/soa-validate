@@ -141,6 +141,96 @@ func handleSVA2A16Skip(ctx context.Context, h HandlerCtx) []Evidence {
 	}}
 }
 
+// SV-A2A-03: §17.2.4 agent.describe result envelope — LIVE.
+//
+// Asserts the §17.2.4 result shape: two required fields (card, jws),
+// correct JSON types (card=object, jws=string), compact-detached JWS
+// shape (^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$), unknown-fields tolerated
+// (additive-minor). §6.1.1 JWS-crypto coverage composes from SV-SIGN-
+// 01..05 and SV-CARD-01..11 — SV-A2A-03 does NOT duplicate those.
+func handleSVA2A03(ctx context.Context, h HandlerCtx) []Evidence {
+	a2aURL, bearer := a2aProbeEnv(h)
+	if a2aURL == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-03: set SOA_A2A_BEARER to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a-boot.test.ts (7 end-to-end §17.2.4 assertions)."}}
+	}
+	body, _, err := a2aRpc(ctx, a2aURL, bearer, "agent.describe", nil, "a03")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-03: rpc error: %v", err)}}
+	}
+	res, ok := body["result"].(map[string]any)
+	if !ok {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-03: result member absent or not an object; body=%v", body)}}
+	}
+	card, hasCard := res["card"].(map[string]any)
+	jws, hasJws := res["jws"].(string)
+	if !hasCard {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: "SV-A2A-03: result.card absent or not a JSON object"}}
+	}
+	if !hasJws {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: "SV-A2A-03: result.jws absent or not a string"}}
+	}
+	// Compact-detached shape: two dots, non-empty header + signature, empty body.
+	parts := splitDots(jws)
+	if len(parts) != 3 || parts[0] == "" || parts[1] != "" || parts[2] == "" {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-03: result.jws is not compact-detached shape (<header>..<signature>); got %q", jws)}}
+	}
+	_ = card // card shape checks are composed via SV-CARD-01..11 at the conformance layer
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: fmt.Sprintf("SV-A2A-03: §17.2.4 envelope shape OK — {card:object, jws:string(%d chars, compact-detached)}", len(jws))}}
+}
+
+// SV-A2A-04: §17.2 handoff.offer accept — LIVE.
+//
+// Asserts the generic accept path: a well-formed offer with empty
+// capabilities_needed returns {accept:true} on capability grounds per
+// §17.2.3 truth-table row 1/3. Trigger-condition discrimination is the
+// remit of SV-A2A-17; SV-A2A-04 asserts only that the accept surface
+// exists and produces the expected shape.
+func handleSVA2A04(ctx context.Context, h HandlerCtx) []Evidence {
+	a2aURL, bearer := a2aProbeEnv(h)
+	if a2aURL == "" {
+		return []Evidence{{Path: PathLive, Status: StatusSkip,
+			Message: "SV-A2A-04: set SOA_A2A_BEARER to activate. Unit coverage at soa-harness-impl/packages/runner/test/a2a.test.ts (accept-path test)."}}
+	}
+	validDigest := "sha256:" + stringRepeat("a", 64)
+	body, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.offer", map[string]any{
+		"task_id":             "t_sv_a2a_04_accept",
+		"summary":             "well-formed accept probe",
+		"messages_digest":     validDigest,
+		"workflow_digest":     validDigest,
+		"capabilities_needed": []string{},
+	}, "a04")
+	if err != nil {
+		return []Evidence{{Path: PathLive, Status: StatusError,
+			Message: fmt.Sprintf("SV-A2A-04: rpc error: %v", err)}}
+	}
+	res, ok := body["result"].(map[string]any)
+	if !ok || res["accept"] != true {
+		return []Evidence{{Path: PathLive, Status: StatusFail,
+			Message: fmt.Sprintf("SV-A2A-04: expected {accept:true}; got %v", body)}}
+	}
+	return []Evidence{{Path: PathLive, Status: StatusPass,
+		Message: "SV-A2A-04: handoff.offer accept path returns {accept:true} for empty capabilities_needed"}}
+}
+
+func splitDots(s string) []string {
+	out := []string{""}
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			out = append(out, "")
+		} else {
+			out[len(out)-1] += string(s[i])
+		}
+	}
+	return out
+}
+
 // SV-A2A-17: §17.2.3 A2A capability advertisement and matching — LIVE.
 //
 // Slice 1 of L-70 v1.3.x live-probe promotion. Bearer-mode auth

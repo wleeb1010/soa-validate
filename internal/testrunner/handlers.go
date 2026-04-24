@@ -217,11 +217,12 @@ var Handlers = map[string]Handler{
 	"SV-COMPAT-07": handleSVCOMPAT07Skip,
 	"SV-COMPAT-08": handleSVCOMPAT08Skip,
 
-	// M9 W2-W5 — §17 Agent2Agent probes. All registered as skip-with-
-	// rationale citing the impl-unit-test that carries current coverage.
-	// Live promotion lands when the JWT + card-fetch test harness
-	// stabilises; pinned at v1.3.0 the must-map gains SV-A2A-15..17 so
-	// those entries become dispatch-reachable after the lock-bump.
+	// L-70 Slice 1 — SV-A2A-03/04/17 live bearer-mode probes (gated on
+	// SOA_A2A_BEARER env; skip cleanly when unset for existing adopters).
+	// Slices 2-6 promote SV-A2A-10..16 incrementally; those stay skip
+	// with impl-unit-test-coverage rationale until their slices land.
+	"SV-A2A-03": handleSVA2A03,
+	"SV-A2A-04": handleSVA2A04,
 	"SV-A2A-10": handleSVA2A10Skip,
 	"SV-A2A-11": handleSVA2A11Skip,
 	"SV-A2A-12": handleSVA2A12Skip,
