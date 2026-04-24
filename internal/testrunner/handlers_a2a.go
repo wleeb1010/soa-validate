@@ -156,16 +156,13 @@ func handleSVA2A14(ctx context.Context, h HandlerCtx) []Evidence {
 	}
 
 	messages := []any{map[string]any{"role": "user", "content": "hello"}}
-	workflow := map[string]any{"task_id": "t_sv_a2a_14", "status": "Handoff", "side_effects": []any{}}
+	// Per-assertion workflow objects constructed below (each uses its own
+	// task_id → distinct workflow_digest). The messages payload is shared
+	// across assertions 1 + 3; assertion 2 tampers messages explicitly.
 	msgDigest, err := computeA2aDigest(messages)
 	if err != nil {
 		return []Evidence{{Path: PathLive, Status: StatusError,
 			Message: fmt.Sprintf("SV-A2A-14: JCS canonicalize messages: %v", err)}}
-	}
-	wfDigest, err := computeA2aDigest(workflow)
-	if err != nil {
-		return []Evidence{{Path: PathLive, Status: StatusError,
-			Message: fmt.Sprintf("SV-A2A-14: JCS canonicalize workflow: %v", err)}}
 	}
 
 	out := []Evidence{}
@@ -234,8 +231,9 @@ func handleSVA2A14(ctx context.Context, h HandlerCtx) []Evidence {
 
 	// Assertion 3: transfer for never-seen task_id → workflow-state-incompatible.
 	neverSeen := fmt.Sprintf("t_sv_a2a_14_neverseen_%d", time.Now().UnixNano())
+	wf3 := map[string]any{"task_id": neverSeen, "status": "Handoff", "side_effects": []any{}}
 	body3, _, err := a2aRpc(ctx, a2aURL, bearer, "handoff.transfer", map[string]any{
-		"task_id": neverSeen, "messages": messages, "workflow": workflow,
+		"task_id": neverSeen, "messages": messages, "workflow": wf3,
 		"billing_tag": "tenant/env", "correlation_id": "cor_" + stringRepeat("c", 20),
 	}, "14c-xfer")
 	if err != nil {
