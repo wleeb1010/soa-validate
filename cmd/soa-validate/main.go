@@ -200,6 +200,7 @@ type config struct {
 	memoryBackend string // --memory-backend=<name> per §8.7 (M5 L-56); default "mock"
 	checkPins     bool   // L-62 — read own lock + /version, compare spec_commit_sha, exit
 	allowDrift    bool   // L-62 — in --check-pins mode, report drift but exit 0
+	dryRun        bool   // L-62 — print tests that would run for the profile, then exit
 }
 
 // validAdapterNames lists the closed set of host frameworks recognized by
@@ -236,9 +237,102 @@ func main() {
 		}
 		return
 	}
+	if cfg.dryRun {
+		if err := runDryRun(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "soa-validate --dry-run:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "soa-validate:", err)
 		os.Exit(1)
+	}
+}
+
+// runDryRun lists the tests that would execute for the configured profile,
+// categorizing each by its must-map metadata (milestone / has-handler /
+// vector-or-live). Useful for CI preflight + documentation screenshots.
+// Does NOT instantiate a runner.Client, does NOT contact any Runner.
+func runDryRun(cfg config) error {
+	if cfg.specVectors == "" {
+		return fmt.Errorf("--spec-vectors is required (path to pinned spec repo)")
+	}
+	mm, err := musmap.LoadSV(cfg.specVectors)
+	if err != nil {
+		return fmt.Errorf("load SV must-map: %w", err)
+	}
+
+	// Filter by profile: "core" includes tests with profile in {"core", "core+si", "core+handoff", "full"}
+	// per the §18.3 conformance-level nesting. Simpler form for dry-run: exact match.
+	matching := []string{}
+	for id, def := range mm.Tests {
+		if cfg.profile == "" || def.Profile == cfg.profile || def.Profile == "core" {
+			matching = append(matching, id)
+		}
+	}
+
+	// Categorize
+	haveHandler := []string{}
+	deferredMilestone := []string{}
+	noHandler := []string{}
+	scope := testrunner.DefaultMilestonesInScope()
+	for _, id := range matching {
+		def := mm.Tests[id]
+		if _, inScope := scope[def.ImplMilestone]; !inScope {
+			deferredMilestone = append(deferredMilestone, id)
+			continue
+		}
+		if _, registered := testrunner.Handlers[id]; registered {
+			haveHandler = append(haveHandler, id)
+		} else {
+			noHandler = append(noHandler, id)
+		}
+	}
+
+	fmt.Printf("soa-validate --dry-run\n")
+	fmt.Printf("  profile:      %s\n", cfg.profile)
+	fmt.Printf("  spec-vectors: %s\n", cfg.specVectors)
+	fmt.Printf("\nProfile-eligible tests: %d\n", len(matching))
+	fmt.Printf("  runnable (handler present + in milestone scope): %d\n", len(haveHandler))
+	fmt.Printf("  deferred (out-of-scope milestone):                %d\n", len(deferredMilestone))
+	fmt.Printf("  unhandled (no handler registered):                %d\n", len(noHandler))
+
+	if len(haveHandler) > 0 {
+		fmt.Printf("\nRunnable test IDs (sorted):\n")
+		sort := append([]string(nil), haveHandler...)
+		sortStrings(sort)
+		for _, id := range sort {
+			def := mm.Tests[id]
+			fmt.Printf("  %-18s %-10s %s\n", id, def.Severity, def.Name)
+		}
+	}
+	if len(deferredMilestone) > 0 {
+		fmt.Printf("\nDeferred (milestone out of scope):\n")
+		sort := append([]string(nil), deferredMilestone...)
+		sortStrings(sort)
+		for _, id := range sort {
+			def := mm.Tests[id]
+			fmt.Printf("  %-18s %-4s %s\n", id, def.ImplMilestone, def.MilestoneReason)
+		}
+	}
+	if len(noHandler) > 0 {
+		fmt.Printf("\nUnhandled (handler missing — implement before v1.1 release):\n")
+		sort := append([]string(nil), noHandler...)
+		sortStrings(sort)
+		for _, id := range sort {
+			fmt.Printf("  %s\n", id)
+		}
+	}
+	return nil
+}
+
+func sortStrings(xs []string) {
+	// Tiny inline sort to avoid importing sort just for this.
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j-1] > xs[j]; j-- {
+			xs[j-1], xs[j] = xs[j], xs[j-1]
+		}
 	}
 }
 
@@ -367,6 +461,7 @@ func parseFlags(args []string) config {
 	fs.StringVar(&cfg.memoryBackend, "memory-backend", "mock", "Memory MCP backend under test per §8.7 (M5 L-56): mock|sqlite|mem0|zep|custom. Labels the release-gate output; does not change test selection.")
 	fs.BoolVar(&cfg.checkPins, "check-pins", false, "Read this validator's soa-validate.lock + hit <impl-url>/version, compare spec_commit_sha. Exits 1 on drift (0 with --allow-drift or on alignment).")
 	fs.BoolVar(&cfg.allowDrift, "allow-drift", false, "In --check-pins mode, report drift but exit 0. Useful for intentional mid-bump windows.")
+	fs.BoolVar(&cfg.dryRun, "dry-run", false, "Print the list of tests that would run for the selected --profile (with vector/live/deferred breakdown) and exit without executing any handler. Useful for CI preflight + docs.")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Parse(args)
 	if cfg.adapter != "" && !validAdapterNames[cfg.adapter] {
